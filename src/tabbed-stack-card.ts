@@ -32,7 +32,7 @@ class TabbedStackCardEditor extends LitElement {
   @property({ attribute: false }) public hass: any;
   @property({ attribute: false }) public lovelace: any;
 
-  // HA sometimes assigns config via property instead of setConfig()
+  // HA sometimes sets config as a property
   @property({ attribute: false })
   set config(value: CardConfig | undefined) {
     if (value) this.setConfig(value);
@@ -138,6 +138,7 @@ class TabbedStackCardEditor extends LitElement {
   }
 
   private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
+    // Use HA card editor if available
     const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
 
     if (EditorEl) {
@@ -151,6 +152,7 @@ class TabbedStackCardEditor extends LitElement {
       return html`<div class="card-editor">${el}</div>`;
     }
 
+    // JSON fallback (always works)
     return html`
       <div class="card-editor">
         <div class="hint">
@@ -320,11 +322,8 @@ export class TabbedStackCard extends LitElement {
   }
 
   static getConfigElement() {
-    // Ensure setConfig exists even before upgrade
     const el: any = document.createElement("tabbed-stack-card-editor");
-    if (typeof el.setConfig !== "function") {
-      el.setConfig = (cfg: any) => (el.config = cfg);
-    }
+    if (typeof el.setConfig !== "function") el.setConfig = (cfg: any) => (el.config = cfg);
     return el;
   }
 
@@ -365,8 +364,7 @@ export class TabbedStackCard extends LitElement {
   private async _buildCard() {
     if (!this._config?.tabs?.length) return;
 
-    const tab =
-      this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
+    const tab = this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
     if (!this._helpers) {
       if (!window.loadCardHelpers) throw new Error("window.loadCardHelpers missing.");
@@ -389,17 +387,19 @@ export class TabbedStackCard extends LitElement {
 
     return html`
       <div class="tabs ${this._config.sticky_tabs ? "sticky" : ""}">
-        ${this._config.tabs.map(
-          (t) => html`
-            <button
-              class="chip ${t.id === this._activeTab ? "active" : ""}"
-              @click=${() => this._setTab(t.id)}
-            >
-              ${t.icon ? html`<ha-icon icon="${t.icon}"></ha-icon>` : ""}
-              <span>${t.label ?? t.id}</span>
-            </button>
-          `
-        )}
+        <div class="tabs-inner">
+          ${this._config.tabs.map(
+            (t) => html`
+              <button
+                class="chip ${t.id === this._activeTab ? "active" : ""}"
+                @click=${() => this._setTab(t.id)}
+              >
+                ${t.icon ? html`<ha-icon icon="${t.icon}"></ha-icon>` : ""}
+                <span>${t.label ?? t.id}</span>
+              </button>
+            `
+          )}
+        </div>
       </div>
 
       <div class="content">${this._card ?? ""}</div>
@@ -408,14 +408,29 @@ export class TabbedStackCard extends LitElement {
 
   static styles = css`
     :host { display:block; width:100%; max-width:100%; }
+
     .tabs {
-      display:flex; justify-content:center;
-      gap: var(--tsc-chip-gap, 12px);
-      padding:10px 0 6px;
+      width: 100%;
+      box-sizing: border-box;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 10px 0 6px;
       background: var(--tsc-tabs-bg, transparent);
-      z-index:2;
+      z-index: 2;
     }
+
     .tabs.sticky { position: sticky; top: 0; z-index: 10; }
+
+    .tabs-inner {
+      display: flex;
+      justify-content: center !important;
+      align-items: center;
+      gap: var(--tsc-chip-gap, 12px);
+      width: max-content;
+      margin: 0 auto;
+      padding: 0 8px;
+    }
+
     .chip {
       display:inline-flex; align-items:center; gap:8px;
       padding: var(--tsc-chip-padding, 10px 18px);
@@ -425,15 +440,20 @@ export class TabbedStackCard extends LitElement {
       color: var(--primary-text-color);
       font-size:14px; line-height:1;
       user-select:none; -webkit-tap-highlight-color:transparent;
+      white-space: nowrap;
     }
+
     .chip.active {
       background: var(--tsc-chip-bg-active, var(--primary-color));
       color: var(--tsc-chip-fg-active, var(--text-primary-color, var(--primary-text-color)));
     }
+
     .chip.active ha-icon {
       color: var(--tsc-chip-fg-active, var(--text-primary-color, var(--primary-text-color)));
     }
+
     ha-icon { --mdc-icon-size: var(--tsc-chip-icon-size, 22px); }
+
     .content {
       padding-top: 6px;
       --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
