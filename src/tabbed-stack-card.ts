@@ -1,22 +1,21 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { LovelaceCard } from "custom-card-helpers";
 
-interface TabConfig {
+type Tab = {
   id: string;
-  label?: string;
+  label: string;
   icon?: string;
-  cards?: any[];
-  card?: any; // backward compat
-}
+  cards: any[];
+};
 
-interface CardConfig {
+type TabbedStackConfig = {
   type: string;
-  tabs: TabConfig[];
-  default_tab?: string;
-  storage_key?: string;
   sticky_tabs?: boolean;
-}
+  storage_key?: string;
+  default_tab?: string;
+  tabs: Tab[];
+};
 
 declare global {
   interface Window {
@@ -25,20 +24,22 @@ declare global {
   }
 }
 
-/* ------------------------- Editor (same file) ------------------------- */
+/* =========================
+   Editor (same file)
+   ========================= */
 
 @customElement("tabbed-stack-card-editor")
 class TabbedStackCardEditor extends LitElement {
   @property({ attribute: false }) public hass: any;
   @property({ attribute: false }) public lovelace: any;
 
-  // HA sometimes sets config as a property
+  @state() private _config?: TabbedStackConfig;
+
+  // HA may set config as property instead of calling setConfig()
   @property({ attribute: false })
-  set config(value: CardConfig | undefined) {
+  set config(value: TabbedStackConfig | undefined) {
     if (value) this.setConfig(value);
   }
-
-  @state() private _config?: CardConfig;
 
   constructor() {
     super();
@@ -55,30 +56,40 @@ class TabbedStackCardEditor extends LitElement {
     }
   }
 
-  public setConfig(config: CardConfig) {
-    const tabs = (config.tabs ?? []).map((t) => ({
-      ...t,
-      cards: t.cards ?? (t.card ? [t.card] : []),
+  public setConfig(config: TabbedStackConfig) {
+    // normalize & ensure required structure
+    const tabs = (config.tabs ?? []).map((t, idx) => ({
+      id: (t.id || `tab_${idx + 1}`).toString(),
+      label: (t.label || t.id || `Tab ${idx + 1}`).toString(),
+      icon: t.icon,
+      cards: Array.isArray(t.cards) ? t.cards : [],
     }));
-    this._config = { ...config, tabs };
+
+    this._config = {
+      type: "custom:tabbed-stack-card",
+      sticky_tabs: !!config.sticky_tabs,
+      storage_key: config.storage_key,
+      default_tab: config.default_tab,
+      tabs: tabs.length ? tabs : [{ id: "tab_1", label: "Tab 1", icon: "mdi:apps", cards: [] }],
+    };
   }
 
-  private _emitConfigChanged(config: CardConfig) {
-    this._config = config;
+  private _emitConfigChanged(cfg: TabbedStackConfig) {
+    this._config = cfg;
     this.dispatchEvent(
       new CustomEvent("config-changed", {
-        detail: { config },
+        detail: { config: cfg },
         bubbles: true,
         composed: true,
       })
     );
   }
 
-  private _clone(): CardConfig {
+  private _clone(): TabbedStackConfig {
     return JSON.parse(JSON.stringify(this._config!));
   }
 
-  private _setValue(key: keyof CardConfig, value: any) {
+  private _setRoot<K extends keyof TabbedStackConfig>(key: K, value: TabbedStackConfig[K]) {
     const cfg = this._clone();
     (cfg as any)[key] = value;
     this._emitConfigChanged(cfg);
@@ -86,30 +97,22 @@ class TabbedStackCardEditor extends LitElement {
 
   private _addTab() {
     const cfg = this._clone();
-    const idx = (cfg.tabs?.length ?? 0) + 1;
-    cfg.tabs = cfg.tabs ?? [];
+    const next = cfg.tabs.length + 1;
     cfg.tabs.push({
-      id: `Tab${idx}`,
-      label: `Tab ${idx}`,
+      id: `tab_${next}`,
+      label: `Tab ${next}`,
       icon: "mdi:apps",
-      cards: [{ type: "markdown", content: `Hello Tab ${idx}` }],
+      cards: [],
     });
     if (!cfg.default_tab) cfg.default_tab = cfg.tabs[0].id;
     this._emitConfigChanged(cfg);
   }
 
-  private _removeTab(i: number) {
+  private _removeTab(index: number) {
     const cfg = this._clone();
-    cfg.tabs.splice(i, 1);
+    cfg.tabs.splice(index, 1);
     if (!cfg.tabs.length) {
-      cfg.tabs = [
-        {
-          id: "Tab1",
-          label: "Tab 1",
-          icon: "mdi:apps",
-          cards: [{ type: "markdown", content: "Hello" }],
-        },
-      ];
+      cfg.tabs = [{ id: "tab_1", label: "Tab 1", icon: "mdi:apps", cards: [] }];
     }
     if (cfg.default_tab && !cfg.tabs.some((t) => t.id === cfg.default_tab)) {
       cfg.default_tab = cfg.tabs[0].id;
@@ -117,28 +120,33 @@ class TabbedStackCardEditor extends LitElement {
     this._emitConfigChanged(cfg);
   }
 
+  private _updateTab(index: number, patch: Partial<Tab>) {
+    const cfg = this._clone();
+    cfg.tabs[index] = { ...cfg.tabs[index], ...patch };
+    this._emitConfigChanged(cfg);
+  }
+
   private _addCard(tabIndex: number) {
     const cfg = this._clone();
     cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
-    cfg.tabs[tabIndex].cards!.push({ type: "markdown", content: "New card" });
+    cfg.tabs[tabIndex].cards.push({ type: "markdown", content: "New card" });
     this._emitConfigChanged(cfg);
   }
 
   private _removeCard(tabIndex: number, cardIndex: number) {
     const cfg = this._clone();
-    cfg.tabs[tabIndex].cards?.splice(cardIndex, 1);
+    cfg.tabs[tabIndex].cards.splice(cardIndex, 1);
     this._emitConfigChanged(cfg);
   }
 
   private _updateCard(tabIndex: number, cardIndex: number, newCardConfig: any) {
     const cfg = this._clone();
-    cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
-    cfg.tabs[tabIndex].cards![cardIndex] = newCardConfig;
+    cfg.tabs[tabIndex].cards[cardIndex] = newCardConfig;
     this._emitConfigChanged(cfg);
   }
 
-  private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
-    // Use HA card editor if available
+  private _renderHACardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
+    // Prefer HA's standard card editor
     const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
 
     if (EditorEl) {
@@ -149,25 +157,20 @@ class TabbedStackCardEditor extends LitElement {
         const value = ev?.detail?.value;
         if (value) this._updateCard(tabIndex, cardIndex, value);
       });
-      return html`<div class="card-editor">${el}</div>`;
+      return el;
     }
 
-    // JSON fallback (always works)
+    // Fallback JSON editor
     return html`
-      <div class="card-editor">
-        <div class="hint">
-          ${this.hass ? "Card-Editor nicht verfügbar → JSON-Fallback." : "HA lädt noch… JSON-Fallback aktiv."}
-        </div>
-        <textarea
-          class="json"
-          @change=${(e: any) => {
-            try {
-              const v = JSON.parse(e.target.value);
-              this._updateCard(tabIndex, cardIndex, v);
-            } catch {}
-          }}
-        >${JSON.stringify(cardCfg, null, 2)}</textarea>
-      </div>
+      <textarea
+        class="json"
+        @change=${(e: any) => {
+          try {
+            const v = JSON.parse(e.target.value);
+            this._updateCard(tabIndex, cardIndex, v);
+          } catch {}
+        }}
+      >${JSON.stringify(cardCfg, null, 2)}</textarea>
     `;
   }
 
@@ -175,143 +178,221 @@ class TabbedStackCardEditor extends LitElement {
     if (!this._config) return html`<div class="hint">Konfiguration wird geladen…</div>`;
 
     return html`
-      <div class="section">
-        <label class="switch">
-          <input
-            type="checkbox"
-            .checked=${!!this._config.sticky_tabs}
-            @change=${(e: any) => this._setValue("sticky_tabs", e.target.checked)}
-          />
-          <span>Sticky tabs</span>
-        </label>
-      </div>
+      <div class="root">
+        <div class="row">
+          <label class="switch">
+            <input
+              type="checkbox"
+              .checked=${!!this._config.sticky_tabs}
+              @change=${(e: any) => this._setRoot("sticky_tabs", e.target.checked)}
+            />
+            <span>Sticky Tabs</span>
+          </label>
+        </div>
 
-      <div class="grid">
-        <label>
-          <div class="lbl">storage_key (optional)</div>
-          <input
-            class="inp"
-            .value=${this._config.storage_key ?? ""}
-            @input=${(e: any) => this._setValue("storage_key", e.target.value || undefined)}
-          />
-        </label>
+        <div class="grid">
+          <label>
+            <div class="lbl">storage_key (optional)</div>
+            <input
+              class="inp"
+              .value=${this._config.storage_key ?? ""}
+              @input=${(e: any) => this._setRoot("storage_key", e.target.value || undefined)}
+            />
+          </label>
 
-        <label>
-          <div class="lbl">default_tab (optional)</div>
-          <input
-            class="inp"
-            .value=${this._config.default_tab ?? ""}
-            @input=${(e: any) => this._setValue("default_tab", e.target.value || undefined)}
-          />
-        </label>
-      </div>
+          <label>
+            <div class="lbl">default_tab (optional)</div>
+            <input
+              class="inp"
+              .value=${this._config.default_tab ?? ""}
+              @input=${(e: any) => this._setRoot("default_tab", e.target.value || undefined)}
+            />
+          </label>
+        </div>
 
-      <div class="tabs-header">
-        <div class="h">Tabs</div>
-        <button class="btn" @click=${this._addTab}>Add Tab</button>
-      </div>
+        <div class="header">
+          <div class="h">Tabs</div>
+          <button class="btn" @click=${this._addTab}>Add Tab</button>
+        </div>
 
-      ${this._config.tabs.map(
-        (t, i) => html`
-          <div class="tab">
-            <div class="tab-top">
-              <div class="tab-title">Tab ${i + 1}</div>
-              <button class="btn" @click=${() => this._removeTab(i)}>Remove</button>
-            </div>
+        ${this._config.tabs.map(
+          (t, i) => html`
+            <div class="tab">
+              <div class="tabTop">
+                <div class="tabTitle">Tab ${i + 1}</div>
+                <button class="btn danger" @click=${() => this._removeTab(i)}>Remove</button>
+              </div>
 
-            <div class="grid">
-              <label>
-                <div class="lbl">id</div>
-                <input
-                  class="inp"
-                  .value=${t.id}
-                  @input=${(e: any) => {
-                    const cfg = this._clone();
-                    cfg.tabs[i].id = e.target.value;
-                    this._emitConfigChanged(cfg);
-                  }}
-                />
-              </label>
+              <div class="grid">
+                <label>
+                  <div class="lbl">id</div>
+                  <input
+                    class="inp"
+                    .value=${t.id}
+                    @input=${(e: any) => this._updateTab(i, { id: e.target.value })}
+                  />
+                </label>
 
-              <label>
-                <div class="lbl">label</div>
-                <input
-                  class="inp"
-                  .value=${t.label ?? ""}
-                  @input=${(e: any) => {
-                    const cfg = this._clone();
-                    cfg.tabs[i].label = e.target.value || undefined;
-                    this._emitConfigChanged(cfg);
-                  }}
-                />
-              </label>
+                <label>
+                  <div class="lbl">label</div>
+                  <input
+                    class="inp"
+                    .value=${t.label}
+                    @input=${(e: any) => this._updateTab(i, { label: e.target.value })}
+                  />
+                </label>
 
-              <label>
-                <div class="lbl">icon (mdi:...)</div>
-                <input
-                  class="inp"
-                  .value=${t.icon ?? ""}
-                  @input=${(e: any) => {
-                    const cfg = this._clone();
-                    cfg.tabs[i].icon = e.target.value || undefined;
-                    this._emitConfigChanged(cfg);
-                  }}
-                />
-              </label>
-            </div>
+                <label>
+                  <div class="lbl">icon (mdi:...)</div>
+                  <input
+                    class="inp"
+                    .value=${t.icon ?? ""}
+                    @input=${(e: any) => this._updateTab(i, { icon: e.target.value || undefined })}
+                  />
+                </label>
+              </div>
 
-            <div class="cards-header">
-              <div class="h2">Cards in Tab</div>
-              <button class="btn" @click=${() => this._addCard(i)}>Add Card</button>
-            </div>
+              <div class="header small">
+                <div class="h2">Cards</div>
+                <button class="btn" @click=${() => this._addCard(i)}>Add Card</button>
+              </div>
 
-            ${(t.cards ?? []).map(
-              (c, ci) => html`
-                <div class="card-block">
-                  <div class="card-top">
-                    <div class="card-title">Card ${ci + 1}</div>
-                    <button class="btn" @click=${() => this._removeCard(i, ci)}>Remove</button>
+              ${(t.cards ?? []).map(
+                (c, ci) => html`
+                  <div class="cardBlock">
+                    <div class="cardTop">
+                      <div class="cardTitle">Card ${ci + 1}</div>
+                      <button class="btn danger" @click=${() => this._removeCard(i, ci)}>Remove</button>
+                    </div>
+                    <div class="cardEditor">
+                      ${this._renderHACardEditor(i, ci, c)}
+                    </div>
                   </div>
-                  ${this._renderCardEditor(i, ci, c)}
-                </div>
-              `
-            )}
-          </div>
-        `
-      )}
+                `
+              )}
+            </div>
+          `
+        )}
+      </div>
     `;
   }
 
   static styles = css`
-    :host { display:block; padding: 4px 0; }
-    .hint { opacity:.7; font-size:12px; margin-bottom:8px; }
-    .section { margin-bottom:10px; }
-    .switch { display:inline-flex; gap:10px; align-items:center; font-weight:600; }
-    .grid { display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:12px; }
-    .lbl { font-size:12px; opacity:.7; margin-bottom:4px; }
-    .inp { width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(255,255,255,.6); }
-    .tabs-header,.cards-header { display:flex; align-items:center; justify-content:space-between; margin:12px 0 8px; }
-    .h,.h2 { font-weight:800; }
-    .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(0,0,0,.05); cursor:pointer; }
-    .tab { border:1px solid rgba(0,0,0,.15); border-radius:12px; padding:12px; margin-bottom:12px; }
-    .tab-top,.card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-    .tab-title,.card-title { font-weight:800; }
-    .card-block { border:1px dashed rgba(0,0,0,.25); border-radius:12px; padding:10px; margin-top:10px; }
-    textarea.json { width:100%; min-height:140px; padding:10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background: rgba(255,255,255,.6); }
+    :host {
+      display: block;
+      padding: 4px 0;
+    }
+    .hint {
+      opacity: 0.7;
+      font-size: 12px;
+      padding: 8px 0;
+    }
+    .root {
+      display: block;
+    }
+    .row {
+      margin-bottom: 10px;
+    }
+    .switch {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      font-weight: 700;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .lbl {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-bottom: 4px;
+    }
+    .inp {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      background: rgba(255, 255, 255, 0.6);
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 12px 0 8px;
+    }
+    .header.small {
+      margin-top: 10px;
+    }
+    .h,
+    .h2 {
+      font-weight: 900;
+    }
+    .btn {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      background: rgba(0, 0, 0, 0.05);
+      cursor: pointer;
+    }
+    .btn.danger {
+      background: rgba(255, 0, 0, 0.08);
+    }
+    .tab {
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .tabTop,
+    .cardTop {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .tabTitle,
+    .cardTitle {
+      font-weight: 900;
+    }
+    .cardBlock {
+      border: 1px dashed rgba(0, 0, 0, 0.25);
+      border-radius: 12px;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .json {
+      width: 100%;
+      min-height: 140px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.6);
+      box-sizing: border-box;
+    }
   `;
 }
 
-/* -------------------------- Card (same file) -------------------------- */
+/* =========================
+   Card (same file)
+   ========================= */
 
 @customElement("tabbed-stack-card")
 export class TabbedStackCard extends LitElement {
-  @state() private _config!: CardConfig;
+  @state() private _config!: TabbedStackConfig;
   @state() private _activeTab!: string;
 
-  private _card?: LovelaceCard;
   private _helpers?: any;
+  private _card?: LovelaceCard;
 
+  // always forward hass updates
   private _hass: any;
+
   public set hass(value: any) {
     this._hass = value;
     if (this._card) this._card.hass = value;
@@ -322,48 +403,64 @@ export class TabbedStackCard extends LitElement {
   }
 
   static getConfigElement() {
+    // Return editor element that definitely supports setConfig even before upgrade
     const el: any = document.createElement("tabbed-stack-card-editor");
     if (typeof el.setConfig !== "function") el.setConfig = (cfg: any) => (el.config = cfg);
     return el;
   }
 
-  static getStubConfig() {
+  static getStubConfig(): Omit<TabbedStackConfig, "type"> {
     return {
       sticky_tabs: true,
-      storage_key: "tabs_default",
-      default_tab: "Licht",
+      storage_key: "tabbed_stack_active",
+      default_tab: "tab_1",
       tabs: [
-        { id: "Licht", label: "Licht", icon: "mdi:lamp", cards: [{ type: "markdown", content: "Hello Licht" }] },
-        { id: "Rollo", label: "Rollo", icon: "mdi:roller-shade", cards: [{ type: "markdown", content: "Hello Rollo" }] },
+        { id: "tab_1", label: "Licht", icon: "mdi:lamp", cards: [] },
+        { id: "tab_2", label: "Rollo", icon: "mdi:roller-shade", cards: [] },
       ],
     };
   }
 
-  setConfig(config: CardConfig) {
-    if (!config?.tabs?.length) throw new Error("tabs required");
+  setConfig(config: TabbedStackConfig) {
+    if (!config?.tabs?.length) {
+      throw new Error("tabs required");
+    }
 
-    const normalizedTabs = config.tabs.map((t) => ({
-      ...t,
-      cards: t.cards ?? (t.card ? [t.card] : []),
+    // normalize
+    const tabs: Tab[] = config.tabs.map((t, idx) => ({
+      id: (t.id || `tab_${idx + 1}`).toString(),
+      label: (t.label || t.id || `Tab ${idx + 1}`).toString(),
+      icon: t.icon,
+      cards: Array.isArray(t.cards) ? t.cards : [],
     }));
 
-    this._config = { ...config, tabs: normalizedTabs };
+    this._config = {
+      type: "custom:tabbed-stack-card",
+      sticky_tabs: !!config.sticky_tabs,
+      storage_key: config.storage_key,
+      default_tab: config.default_tab,
+      tabs,
+    };
 
-    const stored = this._config.storage_key ? localStorage.getItem(this._config.storage_key) : null;
-    this._activeTab = stored || this._config.default_tab || this._config.tabs[0].id;
+    const stored =
+      this._config.storage_key ? localStorage.getItem(this._config.storage_key) : null;
 
-    void this._buildCard();
+    const initial =
+      (stored && tabs.some((t) => t.id === stored) && stored) ||
+      (this._config.default_tab && tabs.some((t) => t.id === this._config.default_tab) && this._config.default_tab) ||
+      tabs[0].id;
+
+    this._activeTab = initial;
+    void this._buildActive();
   }
 
   private _setTab(id: string) {
     this._activeTab = id;
     if (this._config.storage_key) localStorage.setItem(this._config.storage_key, id);
-    void this._buildCard();
+    void this._buildActive();
   }
 
-  private async _buildCard() {
-    if (!this._config?.tabs?.length) return;
-
+  private async _buildActive() {
     const tab = this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
     if (!this._helpers) {
@@ -372,12 +469,14 @@ export class TabbedStackCard extends LitElement {
     }
 
     const cards = tab.cards ?? [];
-    const cardConfig =
-      cards.length <= 1
-        ? (cards[0] ?? { type: "markdown", content: "No card configured" })
+    const cfg =
+      cards.length === 0
+        ? { type: "markdown", content: `No cards in "${tab.label}"` }
+        : cards.length === 1
+        ? cards[0]
         : { type: "vertical-stack", cards };
 
-    this._card = this._helpers.createCardElement(cardConfig);
+    this._card = this._helpers.createCardElement(cfg);
     if (this._hass) this._card.hass = this._hass;
     this.requestUpdate();
   }
@@ -393,22 +492,28 @@ export class TabbedStackCard extends LitElement {
               <button
                 class="chip ${t.id === this._activeTab ? "active" : ""}"
                 @click=${() => this._setTab(t.id)}
+                title=${t.label}
               >
-                ${t.icon ? html`<ha-icon icon="${t.icon}"></ha-icon>` : ""}
-                <span>${t.label ?? t.id}</span>
+                ${t.icon ? html`<ha-icon icon="${t.icon}"></ha-icon>` : nothing}
+                <span>${t.label}</span>
               </button>
             `
           )}
         </div>
       </div>
 
-      <div class="content">${this._card ?? ""}</div>
+      <div class="content">${this._card ?? nothing}</div>
     `;
   }
 
   static styles = css`
-    :host { display:block; width:100%; max-width:100%; }
+    :host {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
 
+    /* Tabs container */
     .tabs {
       width: 100%;
       box-sizing: border-box;
@@ -417,30 +522,49 @@ export class TabbedStackCard extends LitElement {
       padding: 10px 0 6px;
       background: var(--tsc-tabs-bg, transparent);
       z-index: 2;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar {
+      display: none;
     }
 
-    .tabs.sticky { position: sticky; top: 0; z-index: 10; }
+    .tabs.sticky {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
 
+    /* Perfect centering (even inside odd popup layouts) */
     .tabs-inner {
       display: flex;
-      justify-content: center !important;
       align-items: center;
+      justify-content: center;
       gap: var(--tsc-chip-gap, 12px);
       width: max-content;
       margin: 0 auto;
       padding: 0 8px;
     }
 
+    /* Chips */
     .chip {
-      display:inline-flex; align-items:center; gap:8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       padding: var(--tsc-chip-padding, 10px 18px);
       border-radius: var(--tsc-chip-radius, 999px);
-      border:none; cursor:pointer;
-      background: var(--tsc-chip-bg, rgba(0,0,0,0.18));
-      color: var(--primary-text-color);
-      font-size:14px; line-height:1;
-      user-select:none; -webkit-tap-highlight-color:transparent;
+      border: none;
+      cursor: pointer;
       white-space: nowrap;
+
+      /* Theme-aware defaults */
+      background: var(--tsc-chip-bg, rgba(255, 255, 255, 0.18));
+      color: var(--primary-text-color);
+
+      font-size: 14px;
+      line-height: 1;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
     }
 
     .chip.active {
@@ -448,26 +572,34 @@ export class TabbedStackCard extends LitElement {
       color: var(--tsc-chip-fg-active, var(--text-primary-color, var(--primary-text-color)));
     }
 
-    .chip.active ha-icon {
-      color: var(--tsc-chip-fg-active, var(--text-primary-color, var(--primary-text-color)));
+    ha-icon {
+      --mdc-icon-size: var(--tsc-chip-icon-size, 22px);
+      color: currentColor;
     }
 
-    ha-icon { --mdc-icon-size: var(--tsc-chip-icon-size, 22px); }
-
+    /* Content spacing shield (Bubble often sets 0 gap globally) */
     .content {
       padding-top: 6px;
       --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
-      width:100%; max-width:100%;
+      width: 100%;
+      max-width: 100%;
     }
-    .content > * { display:block; width:100%; max-width:100%; }
+    .content > * {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
   `;
 }
 
-// Card picker registration
+/* =========================
+   Card picker registration
+   ========================= */
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "tabbed-stack-card",
   name: "Tabbed Stack Card",
-  description: "Tabbed navigation with multiple cards per tab (Bubble-style).",
+  description: "Centered sticky tabs + multiple cards per tab + visual editor",
   preview: true,
 });
