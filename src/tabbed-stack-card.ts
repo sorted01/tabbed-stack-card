@@ -2,11 +2,19 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { LovelaceCard } from "custom-card-helpers";
 
+// IMPORTANT: bundle editor into same output
+import "./tabbed-stack-card-editor";
+
 interface TabConfig {
   id: string;
   label?: string;
   icon?: string;
-  card: any; // Lovelace card config
+
+  // NEW: multiple cards per tab
+  cards?: any[];
+
+  // BACKWARD COMPAT: single card
+  card?: any;
 }
 
 interface CardConfig {
@@ -32,20 +40,42 @@ export class TabbedStackCard extends LitElement {
   private _card?: LovelaceCard;
   private _helpers?: any;
 
+  // ---- UI editor hooks ----
+  static getConfigElement() {
+    return document.createElement("tabbed-stack-card-editor");
+  }
+
+  static getStubConfig(): CardConfig {
+    return {
+      type: "custom:tabbed-stack-card",
+      sticky_tabs: true,
+      storage_key: "tabs_default",
+      default_tab: "Tab1",
+      tabs: [
+        {
+          id: "Tab1",
+          label: "Tab 1",
+          icon: "mdi:lamp",
+          cards: [{ type: "markdown", content: "Hello Tab 1" }],
+        },
+        {
+          id: "Tab2",
+          label: "Tab 2",
+          icon: "mdi:roller-shade",
+          cards: [{ type: "markdown", content: "Hello Tab 2" }],
+        },
+      ],
+    };
+  }
+
   setConfig(config: CardConfig) {
-    if (!config?.tabs?.length) {
-      throw new Error("tabs required");
-    }
+    if (!config?.tabs?.length) throw new Error("tabs required");
 
     this._config = config;
 
-    const stored = config.storage_key
-      ? localStorage.getItem(config.storage_key)
-      : null;
-
+    const stored = config.storage_key ? localStorage.getItem(config.storage_key) : null;
     this._activeTab = stored || config.default_tab || config.tabs[0].id;
 
-    // async build, don't block setConfig
     void this._buildCard();
   }
 
@@ -67,20 +97,24 @@ export class TabbedStackCard extends LitElement {
 
   private async _buildCard() {
     const tab =
-      this._config.tabs.find(t => t.id === this._activeTab) ??
-      this._config.tabs[0];
+      this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
-    // Load Home Assistant Lovelace helpers
+    // Load Lovelace helpers
     if (!this._helpers) {
       if (!window.loadCardHelpers) {
-        throw new Error(
-          "Home Assistant card helpers not found (window.loadCardHelpers missing)."
-        );
+        throw new Error("Home Assistant card helpers not found (window.loadCardHelpers missing).");
       }
       this._helpers = await window.loadCardHelpers();
     }
 
-    this._card = this._helpers.createCardElement(tab.card);
+    // NEW: support multiple cards
+    const cards = tab.cards ?? (tab.card ? [tab.card] : []);
+    const cardConfig =
+      cards.length <= 1
+        ? cards[0] ?? { type: "markdown", content: "No card configured" }
+        : { type: "vertical-stack", cards };
+
+    this._card = this._helpers.createCardElement(cardConfig);
     this._card.hass = this.hass;
 
     this.requestUpdate();
@@ -92,7 +126,7 @@ export class TabbedStackCard extends LitElement {
     return html`
       <div class="tabs ${this._config.sticky_tabs ? "sticky" : ""}">
         ${this._config.tabs.map(
-          t => html`
+          (t) => html`
             <button
               class="chip ${t.id === this._activeTab ? "active" : ""}"
               @click=${() => this._setTab(t.id)}
@@ -104,9 +138,7 @@ export class TabbedStackCard extends LitElement {
         )}
       </div>
 
-      <div class="content">
-        ${this._card ?? ""}
-      </div>
+      <div class="content">${this._card ?? ""}</div>
     `;
   }
 
@@ -120,11 +152,12 @@ export class TabbedStackCard extends LitElement {
       justify-content: center;
       gap: var(--tsc-chip-gap, 12px);
       padding: 10px 0 6px;
+
+      /* default: blend with surrounding UI */
       background: var(--tsc-tabs-bg, transparent);
       z-index: 2;
     }
 
-    /* Sticky inside scroll containers (Bubble popup works well with this) */
     .tabs.sticky {
       position: sticky;
       top: 0;
@@ -140,6 +173,7 @@ export class TabbedStackCard extends LitElement {
       border: none;
       cursor: pointer;
 
+      /* Theme-friendly defaults (works for everyone) */
       background: var(--tsc-chip-bg, rgba(0, 0, 0, 0.18));
       color: var(--primary-text-color);
 
@@ -150,7 +184,19 @@ export class TabbedStackCard extends LitElement {
     }
 
     .chip.active {
-      background: var(--tsc-chip-bg-active, rgba(255, 105, 180, 0.35));
+      /* Theme default: primary */
+      background: var(--tsc-chip-bg-active, var(--primary-color));
+      color: var(
+        --tsc-chip-fg-active,
+        var(--text-primary-color, var(--primary-text-color))
+      );
+    }
+
+    .chip.active ha-icon {
+      color: var(
+        --tsc-chip-fg-active,
+        var(--text-primary-color, var(--primary-text-color))
+      );
     }
 
     .chip:focus-visible {
