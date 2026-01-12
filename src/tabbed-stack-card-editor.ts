@@ -21,7 +21,7 @@ type CardConfig = {
 export class TabbedStackCardEditor extends LitElement {
   @property({ attribute: false }) public hass: any;
 
-  // HA sometimes sets config via a property instead of calling setConfig()
+  // HA sometimes sets the config via property assignment instead of setConfig()
   @property({ attribute: false })
   set config(value: CardConfig | undefined) {
     if (value) this.setConfig(value);
@@ -34,6 +34,7 @@ export class TabbedStackCardEditor extends LitElement {
       ...t,
       cards: t.cards ?? (t.card ? [t.card] : []),
     }));
+
     this._config = { ...config, tabs };
   }
 
@@ -48,14 +49,18 @@ export class TabbedStackCardEditor extends LitElement {
     );
   }
 
+  private _clone(): CardConfig {
+    return JSON.parse(JSON.stringify(this._config!));
+  }
+
   private _setValue(key: keyof CardConfig, value: any) {
-    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+    const cfg = this._clone();
     (cfg as any)[key] = value;
     this._emitConfigChanged(cfg);
   }
 
   private _addTab() {
-    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+    const cfg = this._clone();
     const idx = (cfg.tabs?.length ?? 0) + 1;
     cfg.tabs = cfg.tabs ?? [];
     cfg.tabs.push({
@@ -69,10 +74,17 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   private _removeTab(i: number) {
-    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+    const cfg = this._clone();
     cfg.tabs.splice(i, 1);
     if (!cfg.tabs.length) {
-      cfg.tabs = [{ id: "Tab1", label: "Tab 1", icon: "mdi:apps", cards: [{ type: "markdown", content: "Hello" }] }];
+      cfg.tabs = [
+        {
+          id: "Tab1",
+          label: "Tab 1",
+          icon: "mdi:apps",
+          cards: [{ type: "markdown", content: "Hello" }],
+        },
+      ];
     }
     if (cfg.default_tab && !cfg.tabs.some((t) => t.id === cfg.default_tab)) {
       cfg.default_tab = cfg.tabs[0].id;
@@ -81,28 +93,29 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   private _addCard(tabIndex: number) {
-    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+    const cfg = this._clone();
     cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
     cfg.tabs[tabIndex].cards!.push({ type: "markdown", content: "New card" });
     this._emitConfigChanged(cfg);
   }
 
   private _removeCard(tabIndex: number, cardIndex: number) {
-    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+    const cfg = this._clone();
     cfg.tabs[tabIndex].cards?.splice(cardIndex, 1);
     this._emitConfigChanged(cfg);
   }
 
   private _updateCard(tabIndex: number, cardIndex: number, newCardConfig: any) {
-    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+    const cfg = this._clone();
     cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
     cfg.tabs[tabIndex].cards![cardIndex] = newCardConfig;
     this._emitConfigChanged(cfg);
   }
 
   private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
-    // Prefer HA editor if available + hass present
+    // Use HA card editor if available AND hass exists
     const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
+
     if (EditorEl) {
       const el: any = document.createElement("hui-card-element-editor");
       el.hass = this.hass;
@@ -114,17 +127,21 @@ export class TabbedStackCardEditor extends LitElement {
       return html`<div class="card-editor">${el}</div>`;
     }
 
-    // Fallback JSON editor
+    // JSON fallback editor (always works)
     return html`
       <div class="card-editor">
-        <div class="hint">JSON-Fallback (Editor lädt ggf. später nach).</div>
+        <div class="hint">
+          ${this.hass ? "Card-Editor nicht verfügbar → JSON-Fallback." : "HA lädt noch… JSON-Fallback aktiv."}
+        </div>
         <textarea
           class="json"
           @change=${(e: any) => {
             try {
               const v = JSON.parse(e.target.value);
               this._updateCard(tabIndex, cardIndex, v);
-            } catch {}
+            } catch {
+              // ignore parse errors
+            }
           }}
         >${JSON.stringify(cardCfg, null, 2)}</textarea>
       </div>
@@ -186,7 +203,7 @@ export class TabbedStackCardEditor extends LitElement {
                   class="inp"
                   .value=${t.id}
                   @input=${(e: any) => {
-                    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+                    const cfg = this._clone();
                     cfg.tabs[i].id = e.target.value;
                     this._emitConfigChanged(cfg);
                   }}
@@ -199,7 +216,7 @@ export class TabbedStackCardEditor extends LitElement {
                   class="inp"
                   .value=${t.label ?? ""}
                   @input=${(e: any) => {
-                    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+                    const cfg = this._clone();
                     cfg.tabs[i].label = e.target.value || undefined;
                     this._emitConfigChanged(cfg);
                   }}
@@ -212,7 +229,7 @@ export class TabbedStackCardEditor extends LitElement {
                   class="inp"
                   .value=${t.icon ?? ""}
                   @input=${(e: any) => {
-                    const cfg: CardConfig = JSON.parse(JSON.stringify(this._config!));
+                    const cfg = this._clone();
                     cfg.tabs[i].icon = e.target.value || undefined;
                     this._emitConfigChanged(cfg);
                   }}
@@ -243,20 +260,92 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   static styles = css`
-    :host { display:block; padding: 4px 0; }
-    .hint { opacity:.7; font-size:12px; margin-bottom:8px; }
-    .section { margin-bottom:10px; }
-    .switch { display:inline-flex; gap:10px; align-items:center; font-weight:600; }
-    .grid { display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:12px; }
-    .lbl { font-size:12px; opacity:.7; margin-bottom:4px; }
-    .inp { width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(255,255,255,.6); }
-    .tabs-header,.cards-header { display:flex; align-items:center; justify-content:space-between; margin:12px 0 8px; }
-    .h,.h2 { font-weight:800; }
-    .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(0,0,0,.05); cursor:pointer; }
-    .tab { border:1px solid rgba(0,0,0,.15); border-radius:12px; padding:12px; margin-bottom:12px; }
-    .tab-top,.card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-    .tab-title,.card-title { font-weight:800; }
-    .card-block { border:1px dashed rgba(0,0,0,.25); border-radius:12px; padding:10px; margin-top:10px; }
-    textarea.json { width:100%; min-height:140px; padding:10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background: rgba(255,255,255,.6); }
+    :host {
+      display: block;
+      padding: 4px 0;
+    }
+    .hint {
+      opacity: 0.7;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .section {
+      margin-bottom: 10px;
+    }
+    .switch {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .lbl {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-bottom: 4px;
+    }
+    .inp {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      background: rgba(255, 255, 255, 0.6);
+    }
+    .tabs-header,
+    .cards-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 12px 0 8px;
+    }
+    .h,
+    .h2 {
+      font-weight: 800;
+    }
+    .btn {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      background: rgba(0, 0, 0, 0.05);
+      cursor: pointer;
+    }
+    .tab {
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .tab-top,
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .tab-title,
+    .card-title {
+      font-weight: 800;
+    }
+    .card-block {
+      border: 1px dashed rgba(0, 0, 0, 0.25);
+      border-radius: 12px;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    textarea.json {
+      width: 100%;
+      min-height: 140px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.6);
+    }
   `;
 }

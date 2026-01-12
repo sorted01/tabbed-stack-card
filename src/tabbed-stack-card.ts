@@ -1,8 +1,8 @@
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, state } from "lit/decorators.js";
 import type { LovelaceCard } from "custom-card-helpers";
 
-// Bundle the editor into the same JS output
+// Bundle editor into the same output
 import "./tabbed-stack-card-editor";
 
 interface TabConfig {
@@ -28,18 +28,31 @@ interface CardConfig {
 declare global {
   interface Window {
     loadCardHelpers?: () => Promise<any>;
+    customCards?: Array<any>;
   }
 }
 
 @customElement("tabbed-stack-card")
 export class TabbedStackCard extends LitElement {
-  @property({ attribute: false }) public hass: any;
-
   @state() private _config!: CardConfig;
   @state() private _activeTab!: string;
 
   private _card?: LovelaceCard;
   private _helpers?: any;
+
+  // IMPORTANT: HA may mutate hass object in place -> lit won't detect changes.
+  // So we use a dedicated setter that always forwards to child.
+  private _hass: any;
+
+  public set hass(value: any) {
+    this._hass = value;
+    if (this._card) this._card.hass = value;
+    this.requestUpdate();
+  }
+
+  public get hass() {
+    return this._hass;
+  }
 
   // ---- Visual editor integration ----
   static getConfigElement() {
@@ -70,11 +83,9 @@ export class TabbedStackCard extends LitElement {
   }
 
   setConfig(config: CardConfig) {
-    if (!config?.tabs?.length) {
-      throw new Error("tabs required");
-    }
+    if (!config?.tabs?.length) throw new Error("tabs required");
 
-    // Normalize: if someone still uses tab.card, keep it working
+    // Normalize tabs to always have cards[]
     const normalizedTabs = config.tabs.map((t) => ({
       ...t,
       cards: t.cards ?? (t.card ? [t.card] : []),
@@ -91,12 +102,6 @@ export class TabbedStackCard extends LitElement {
     void this._buildCard();
   }
 
-  updated(changed: Map<string, any>) {
-    if (changed.has("hass") && this._card) {
-      this._card.hass = this.hass;
-    }
-  }
-
   private _setTab(id: string) {
     this._activeTab = id;
 
@@ -108,15 +113,15 @@ export class TabbedStackCard extends LitElement {
   }
 
   private async _buildCard() {
+    if (!this._config?.tabs?.length) return;
+
     const tab =
       this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
-    // Load Home Assistant Lovelace helpers
+    // Load HA Lovelace helpers (preferred)
     if (!this._helpers) {
       if (!window.loadCardHelpers) {
-        throw new Error(
-          "Home Assistant card helpers not found (window.loadCardHelpers missing)."
-        );
+        throw new Error("Home Assistant card helpers not found (window.loadCardHelpers missing).");
       }
       this._helpers = await window.loadCardHelpers();
     }
@@ -127,8 +132,10 @@ export class TabbedStackCard extends LitElement {
         ? (cards[0] ?? { type: "markdown", content: "No card configured" })
         : { type: "vertical-stack", cards };
 
+    // Create new child card
     this._card = this._helpers.createCardElement(cardConfig);
-    this._card.hass = this.hass;
+    // Forward hass immediately
+    if (this._hass) this._card.hass = this._hass;
 
     this.requestUpdate();
   }
@@ -173,7 +180,6 @@ export class TabbedStackCard extends LitElement {
       z-index: 2;
     }
 
-    /* Sticky inside scroll containers (Bubble popup works well) */
     .tabs.sticky {
       position: sticky;
       top: 0;
@@ -227,14 +233,13 @@ export class TabbedStackCard extends LitElement {
     .content {
       padding-top: 6px;
 
-      /* Prevent Bubble/global styles from breaking spacing inside our vertical-stack */
+      /* Shield against Bubble/global overrides */
       --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
 
       width: 100%;
       max-width: 100%;
     }
 
-    /* Ensure inner card takes full width and doesn't get weird layout constraints */
     .content > * {
       display: block;
       width: 100%;
@@ -242,3 +247,12 @@ export class TabbedStackCard extends LitElement {
     }
   `;
 }
+
+// Register for HA card picker + editor reliability
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "tabbed-stack-card",
+  name: "Tabbed Stack Card",
+  description: "Tabbed navigation with multiple cards per tab (Bubble-style).",
+  preview: true,
+});
