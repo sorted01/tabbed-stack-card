@@ -1,26 +1,26 @@
 var Dt = Object.create;
 var Z = Object.defineProperty;
 var Bt = Object.getOwnPropertyDescriptor;
-var pt = (r, t) => (t = Symbol[r]) ? t : Symbol.for("Symbol." + r), U = (r) => {
+var pt = (r, t) => (t = Symbol[r]) ? t : Symbol.for("Symbol." + r), T = (r) => {
   throw TypeError(r);
 };
 var Vt = (r, t, e) => t in r ? Z(r, t, { enumerable: !0, configurable: !0, writable: !0, value: e }) : r[t] = e;
 var lt = (r, t) => Z(r, "name", { value: t, configurable: !0 });
-var G = (r) => [, , , Dt((r == null ? void 0 : r[pt("metadata")]) ?? null)], ut = ["class", "method", "getter", "setter", "accessor", "field", "value", "get", "set"], T = (r) => r !== void 0 && typeof r != "function" ? U("Function expected") : r, qt = (r, t, e, s, i) => ({ kind: ut[r], name: t, metadata: s, addInitializer: (n) => e._ ? U("Already initialized") : i.push(T(n || null)) }), It = (r, t) => Vt(t, pt("metadata"), r[3]), B = (r, t, e, s) => {
+var G = (r) => [, , , Dt((r == null ? void 0 : r[pt("metadata")]) ?? null)], ut = ["class", "method", "getter", "setter", "accessor", "field", "value", "get", "set"], U = (r) => r !== void 0 && typeof r != "function" ? T("Function expected") : r, qt = (r, t, e, s, i) => ({ kind: ut[r], name: t, metadata: s, addInitializer: (n) => e._ ? T("Already initialized") : i.push(U(n || null)) }), It = (r, t) => Vt(t, pt("metadata"), r[3]), B = (r, t, e, s) => {
   for (var i = 0, n = r[t >> 1], o = n && n.length; i < o; i++) t & 1 ? n[i].call(e) : s = n[i].call(e, s);
   return s;
 }, V = (r, t, e, s, i, n) => {
-  var o, a, l, h, d, c = t & 7, g = !!(t & 8), p = !!(t & 16), b = c > 3 ? r.length + 1 : c ? g ? 1 : 2 : 0, at = ut[c + 5], ct = c > 3 && (r[b - 1] = []), Lt = r[b] || (r[b] = []), _ = c && (!p && !g && (i = i.prototype), c < 5 && (c > 3 || !p) && Bt(c < 4 ? i : { get [e]() {
+  var o, a, l, h, d, c = t & 7, g = !!(t & 8), p = !!(t & 16), b = c > 3 ? r.length + 1 : c ? g ? 1 : 2 : 0, at = ut[c + 5], ct = c > 3 && (r[b - 1] = []), Lt = r[b] || (r[b] = []), f = c && (!p && !g && (i = i.prototype), c < 5 && (c > 3 || !p) && Bt(c < 4 ? i : { get [e]() {
     return ht(this, n);
-  }, set [e](f) {
-    return dt(this, n, f);
+  }, set [e](_) {
+    return dt(this, n, _);
   } }, e));
   c ? p && c < 4 && lt(n, (c > 2 ? "set " : c > 1 ? "get " : "") + e) : lt(i, e);
   for (var F = s.length - 1; F >= 0; F--)
-    h = qt(c, e, l = {}, r[3], Lt), c && (h.static = g, h.private = p, d = h.access = { has: p ? (f) => Jt(i, f) : (f) => e in f }, c ^ 3 && (d.get = p ? (f) => (c ^ 1 ? ht : Wt)(f, i, c ^ 4 ? n : _.get) : (f) => f[e]), c > 2 && (d.set = p ? (f, K) => dt(f, i, K, c ^ 4 ? n : _.set) : (f, K) => f[e] = K)), a = (0, s[F])(c ? c < 4 ? p ? n : _[at] : c > 4 ? void 0 : { get: _.get, set: _.set } : i, h), l._ = 1, c ^ 4 || a === void 0 ? T(a) && (c > 4 ? ct.unshift(a) : c ? p ? n = a : _[at] = a : i = a) : typeof a != "object" || a === null ? U("Object expected") : (T(o = a.get) && (_.get = o), T(o = a.set) && (_.set = o), T(o = a.init) && ct.unshift(o));
-  return c || It(r, i), _ && Z(i, e, _), p ? c ^ 4 ? n : _ : i;
+    h = qt(c, e, l = {}, r[3], Lt), c && (h.static = g, h.private = p, d = h.access = { has: p ? (_) => Jt(i, _) : (_) => e in _ }, c ^ 3 && (d.get = p ? (_) => (c ^ 1 ? ht : Wt)(_, i, c ^ 4 ? n : f.get) : (_) => _[e]), c > 2 && (d.set = p ? (_, K) => dt(_, i, K, c ^ 4 ? n : f.set) : (_, K) => _[e] = K)), a = (0, s[F])(c ? c < 4 ? p ? n : f[at] : c > 4 ? void 0 : { get: f.get, set: f.set } : i, h), l._ = 1, c ^ 4 || a === void 0 ? U(a) && (c > 4 ? ct.unshift(a) : c ? p ? n = a : f[at] = a : i = a) : typeof a != "object" || a === null ? T("Object expected") : (U(o = a.get) && (f.get = o), U(o = a.set) && (f.set = o), U(o = a.init) && ct.unshift(o));
+  return c || It(r, i), f && Z(i, e, f), p ? c ^ 4 ? n : f : i;
 };
-var Q = (r, t, e) => t.has(r) || U("Cannot " + e), Jt = (r, t) => Object(t) !== t ? U('Cannot use the "in" operator on this value') : r.has(t), ht = (r, t, e) => (Q(r, t, "read from private field"), e ? e.call(r) : t.get(r));
+var Q = (r, t, e) => t.has(r) || T("Cannot " + e), Jt = (r, t) => Object(t) !== t ? T('Cannot use the "in" operator on this value') : r.has(t), ht = (r, t, e) => (Q(r, t, "read from private field"), e ? e.call(r) : t.get(r));
 var dt = (r, t, e, s) => (Q(r, t, "write to private field"), s ? s.call(r, e) : t.set(r, e), e), Wt = (r, t, e) => (Q(r, t, "access private method"), e);
 /**
  * @license
@@ -28,7 +28,7 @@ var dt = (r, t, e, s) => (Q(r, t, "write to private field"), s ? s.call(r, e) : 
  * SPDX-License-Identifier: BSD-3-Clause
  */
 const q = globalThis, it = q.ShadowRoot && (q.ShadyCSS === void 0 || q.ShadyCSS.nativeShadow) && "adoptedStyleSheets" in Document.prototype && "replace" in CSSStyleSheet.prototype, rt = Symbol(), gt = /* @__PURE__ */ new WeakMap();
-let Ut = class {
+let Tt = class {
   constructor(t, e, s) {
     if (this._$cssResult$ = !0, s !== rt) throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");
     this.cssText = t, this.t = e;
@@ -46,20 +46,20 @@ let Ut = class {
     return this.cssText;
   }
 };
-const Ft = (r) => new Ut(typeof r == "string" ? r : r + "", void 0, rt), Ht = (r, ...t) => {
+const Ft = (r) => new Tt(typeof r == "string" ? r : r + "", void 0, rt), Ht = (r, ...t) => {
   const e = r.length === 1 ? r[0] : t.reduce((s, i, n) => s + ((o) => {
     if (o._$cssResult$ === !0) return o.cssText;
     if (typeof o == "number") return o;
     throw Error("Value passed to 'css' function must be a 'css' function result: " + o + ". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.");
   })(i) + r[n + 1], r[0]);
-  return new Ut(e, r, rt);
+  return new Tt(e, r, rt);
 }, Kt = (r, t) => {
   if (it) r.adoptedStyleSheets = t.map((e) => e instanceof CSSStyleSheet ? e : e.styleSheet);
   else for (const e of t) {
     const s = document.createElement("style"), i = q.litNonce;
     i !== void 0 && s.setAttribute("nonce", i), s.textContent = e.cssText, r.appendChild(s);
   }
-}, ft = it ? (r) => r : (r) => r instanceof CSSStyleSheet ? ((t) => {
+}, _t = it ? (r) => r : (r) => r instanceof CSSStyleSheet ? ((t) => {
   let e = "";
   for (const s of t.cssRules) e += s.cssText;
   return Ft(e);
@@ -69,7 +69,7 @@ const Ft = (r) => new Ut(typeof r == "string" ? r : r + "", void 0, rt), Ht = (r
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const { is: Zt, defineProperty: Gt, getOwnPropertyDescriptor: Qt, getOwnPropertyNames: Xt, getOwnPropertySymbols: Yt, getPrototypeOf: te } = Object, v = globalThis, _t = v.trustedTypes, ee = _t ? _t.emptyScript : "", X = v.reactiveElementPolyfillSupport, M = (r, t) => r, I = { toAttribute(r, t) {
+const { is: Zt, defineProperty: Gt, getOwnPropertyDescriptor: Qt, getOwnPropertyNames: Xt, getOwnPropertySymbols: Yt, getPrototypeOf: te } = Object, v = globalThis, ft = v.trustedTypes, ee = ft ? ft.emptyScript : "", X = v.reactiveElementPolyfillSupport, M = (r, t) => r, I = { toAttribute(r, t) {
   switch (t) {
     case Boolean:
       r = r ? ee : null;
@@ -153,8 +153,8 @@ let C = class extends HTMLElement {
     const e = [];
     if (Array.isArray(t)) {
       const s = new Set(t.flat(1 / 0).reverse());
-      for (const i of s) e.unshift(ft(i));
-    } else t !== void 0 && e.push(ft(t));
+      for (const i of s) e.unshift(_t(i));
+    } else t !== void 0 && e.push(_t(t));
     return e;
   }
   static _$Eu(t, e) {
@@ -621,11 +621,18 @@ var kt, Pt, Ot, N;
 Ot = [jt("tabbed-stack-card-editor")];
 let A = class A extends (Pt = k, kt = [ge({ attribute: !1 })], Pt) {
   constructor() {
-    super(...arguments);
+    super();
     B(N, 5, this);
+    this._upgradeProperty("config"), this._upgradeProperty("hass"), this._upgradeProperty("lovelace");
   }
   set config(e) {
     e && this.setConfig(e);
+  }
+  _upgradeProperty(e) {
+    if (Object.prototype.hasOwnProperty.call(this, e)) {
+      const s = this[e];
+      delete this[e], this[e] = s;
+    }
   }
   setConfig(e) {
     const s = (e.tabs ?? []).map((i) => ({
@@ -818,111 +825,42 @@ let A = class A extends (Pt = k, kt = [ge({ attribute: !1 })], Pt) {
   }
 };
 N = G(Pt), V(N, 3, "config", kt, A), A = V(N, 0, "TabbedStackCardEditor", Ot, A), A.styles = Ht`
-    :host {
-      display: block;
-      padding: 4px 0;
-    }
-    .hint {
-      opacity: 0.7;
-      font-size: 12px;
-      margin-bottom: 8px;
-    }
-    .section {
-      margin-bottom: 10px;
-    }
-    .switch {
-      display: inline-flex;
-      gap: 10px;
-      align-items: center;
-      font-weight: 600;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .lbl {
-      font-size: 12px;
-      opacity: 0.7;
-      margin-bottom: 4px;
-    }
-    .inp {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(0, 0, 0, 0.2);
-      background: rgba(255, 255, 255, 0.6);
-    }
-    .tabs-header,
-    .cards-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin: 12px 0 8px;
-    }
-    .h,
-    .h2 {
-      font-weight: 800;
-    }
-    .btn {
-      padding: 6px 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(0, 0, 0, 0.2);
-      background: rgba(0, 0, 0, 0.05);
-      cursor: pointer;
-    }
-    .tab {
-      border: 1px solid rgba(0, 0, 0, 0.15);
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 12px;
-    }
-    .tab-top,
-    .card-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .tab-title,
-    .card-title {
-      font-weight: 800;
-    }
-    .card-block {
-      border: 1px dashed rgba(0, 0, 0, 0.25);
-      border-radius: 12px;
-      padding: 10px;
-      margin-top: 10px;
-    }
-    textarea.json {
-      width: 100%;
-      min-height: 140px;
-      padding: 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(0, 0, 0, 0.2);
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size: 12px;
-      background: rgba(255, 255, 255, 0.6);
-    }
+    :host { display:block; padding: 4px 0; }
+    .hint { opacity:.7; font-size:12px; margin-bottom:8px; }
+    .section { margin-bottom:10px; }
+    .switch { display:inline-flex; gap:10px; align-items:center; font-weight:600; }
+    .grid { display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:12px; }
+    .lbl { font-size:12px; opacity:.7; margin-bottom:4px; }
+    .inp { width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(255,255,255,.6); }
+    .tabs-header,.cards-header { display:flex; align-items:center; justify-content:space-between; margin:12px 0 8px; }
+    .h,.h2 { font-weight:800; }
+    .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(0,0,0,.05); cursor:pointer; }
+    .tab { border:1px solid rgba(0,0,0,.15); border-radius:12px; padding:12px; margin-bottom:12px; }
+    .tab-top,.card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .tab-title,.card-title { font-weight:800; }
+    .card-block { border:1px dashed rgba(0,0,0,.25); border-radius:12px; padding:10px; margin-top:10px; }
+    textarea.json { width:100%; min-height:140px; padding:10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background: rgba(255,255,255,.6); }
   `, B(N, 1, A);
 let Et = A;
-var Tt, st, fe;
-Tt = [jt("tabbed-stack-card")];
-let S = class S extends (fe = k) {
+var Ut, st, _e;
+Ut = [jt("tabbed-stack-card")];
+let S = class S extends (_e = k) {
   set hass(t) {
     this._hass = t, this._card && (this._card.hass = t), this.requestUpdate();
   }
   get hass() {
     return this._hass;
   }
-  // ---- Visual editor integration ----
+  // --- Visual editor integration (ROBUST) ---
   static getConfigElement() {
-    return document.createElement("tabbed-stack-card-editor");
+    const t = document.createElement("tabbed-stack-card-editor");
+    return typeof t.setConfig != "function" && (t.setConfig = (e) => {
+      t.config = e;
+    }), t;
   }
+  // NOTE: HA expects stub config WITHOUT `type`
   static getStubConfig() {
     return {
-      type: "custom:tabbed-stack-card",
       sticky_tabs: !0,
       storage_key: "tabs_default",
       default_tab: "Licht",
@@ -990,7 +928,7 @@ let S = class S extends (fe = k) {
     ` : $``;
   }
 };
-st = G(fe), S = V(st, 0, "TabbedStackCard", Tt, S), S.styles = Ht`
+st = G(_e), S = V(st, 0, "TabbedStackCard", Ut, S), S.styles = Ht`
     :host {
       display: block;
       width: 100%;
@@ -1021,7 +959,6 @@ st = G(fe), S = V(st, 0, "TabbedStackCard", Tt, S), S.styles = Ht`
       border: none;
       cursor: pointer;
 
-      /* Theme-friendly defaults */
       background: var(--tsc-chip-bg, rgba(0, 0, 0, 0.18));
       color: var(--primary-text-color);
 
@@ -1032,7 +969,6 @@ st = G(fe), S = V(st, 0, "TabbedStackCard", Tt, S), S.styles = Ht`
     }
 
     .chip.active {
-      /* Default active color from theme */
       background: var(--tsc-chip-bg-active, var(--primary-color));
       color: var(
         --tsc-chip-fg-active,
@@ -1045,11 +981,6 @@ st = G(fe), S = V(st, 0, "TabbedStackCard", Tt, S), S.styles = Ht`
         --tsc-chip-fg-active,
         var(--text-primary-color, var(--primary-text-color))
       );
-    }
-
-    .chip:focus-visible {
-      outline: 2px solid var(--primary-color);
-      outline-offset: 2px;
     }
 
     ha-icon {

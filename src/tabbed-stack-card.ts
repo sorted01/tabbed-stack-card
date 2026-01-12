@@ -2,7 +2,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { LovelaceCard } from "custom-card-helpers";
 
-// Bundle editor into the same output
+// IMPORTANT: ensure editor gets bundled + defined
 import "./tabbed-stack-card-editor";
 
 interface TabConfig {
@@ -10,10 +10,10 @@ interface TabConfig {
   label?: string;
   icon?: string;
 
-  // Preferred: multiple cards per tab
+  // Preferred
   cards?: any[];
 
-  // Backward compatibility: single card
+  // Backward compatibility
   card?: any;
 }
 
@@ -40,8 +40,7 @@ export class TabbedStackCard extends LitElement {
   private _card?: LovelaceCard;
   private _helpers?: any;
 
-  // IMPORTANT: HA may mutate hass object in place -> lit won't detect changes.
-  // So we use a dedicated setter that always forwards to child.
+  // --- Hass setter (fixes live updates even if hass is mutated in-place) ---
   private _hass: any;
 
   public set hass(value: any) {
@@ -54,14 +53,25 @@ export class TabbedStackCard extends LitElement {
     return this._hass;
   }
 
-  // ---- Visual editor integration ----
+  // --- Visual editor integration (ROBUST) ---
   static getConfigElement() {
-    return document.createElement("tabbed-stack-card-editor");
+    // Create element even if it isn't upgraded yet
+    const el: any = document.createElement("tabbed-stack-card-editor");
+
+    // Guarantee a setConfig exists at the moment HA calls it
+    // If the element isn't upgraded yet, this stores config on `el.config`.
+    if (typeof el.setConfig !== "function") {
+      el.setConfig = (config: any) => {
+        el.config = config;
+      };
+    }
+
+    return el;
   }
 
-  static getStubConfig(): CardConfig {
+  // NOTE: HA expects stub config WITHOUT `type`
+  static getStubConfig() {
     return {
-      type: "custom:tabbed-stack-card",
       sticky_tabs: true,
       storage_key: "tabs_default",
       default_tab: "Licht",
@@ -118,7 +128,6 @@ export class TabbedStackCard extends LitElement {
     const tab =
       this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
-    // Load HA Lovelace helpers (preferred)
     if (!this._helpers) {
       if (!window.loadCardHelpers) {
         throw new Error("Home Assistant card helpers not found (window.loadCardHelpers missing).");
@@ -132,8 +141,8 @@ export class TabbedStackCard extends LitElement {
         ? (cards[0] ?? { type: "markdown", content: "No card configured" })
         : { type: "vertical-stack", cards };
 
-    // Create new child card
     this._card = this._helpers.createCardElement(cardConfig);
+
     // Forward hass immediately
     if (this._hass) this._card.hass = this._hass;
 
@@ -195,7 +204,6 @@ export class TabbedStackCard extends LitElement {
       border: none;
       cursor: pointer;
 
-      /* Theme-friendly defaults */
       background: var(--tsc-chip-bg, rgba(0, 0, 0, 0.18));
       color: var(--primary-text-color);
 
@@ -206,7 +214,6 @@ export class TabbedStackCard extends LitElement {
     }
 
     .chip.active {
-      /* Default active color from theme */
       background: var(--tsc-chip-bg-active, var(--primary-color));
       color: var(
         --tsc-chip-fg-active,
@@ -219,11 +226,6 @@ export class TabbedStackCard extends LitElement {
         --tsc-chip-fg-active,
         var(--text-primary-color, var(--primary-text-color))
       );
-    }
-
-    .chip:focus-visible {
-      outline: 2px solid var(--primary-color);
-      outline-offset: 2px;
     }
 
     ha-icon {
@@ -248,7 +250,7 @@ export class TabbedStackCard extends LitElement {
   `;
 }
 
-// Register for HA card picker + editor reliability
+// Register in card picker / helps editor reliability
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "tabbed-stack-card",

@@ -20,8 +20,9 @@ type CardConfig = {
 @customElement("tabbed-stack-card-editor")
 export class TabbedStackCardEditor extends LitElement {
   @property({ attribute: false }) public hass: any;
+  @property({ attribute: false }) public lovelace: any;
 
-  // HA sometimes sets the config via property assignment instead of setConfig()
+  // HA sometimes assigns config via property
   @property({ attribute: false })
   set config(value: CardConfig | undefined) {
     if (value) this.setConfig(value);
@@ -29,12 +30,28 @@ export class TabbedStackCardEditor extends LitElement {
 
   @state() private _config?: CardConfig;
 
+  constructor() {
+    super();
+
+    // Handle properties set on the element BEFORE it was upgraded
+    this._upgradeProperty("config");
+    this._upgradeProperty("hass");
+    this._upgradeProperty("lovelace");
+  }
+
+  private _upgradeProperty(prop: string) {
+    if (Object.prototype.hasOwnProperty.call(this, prop)) {
+      const value = (this as any)[prop];
+      delete (this as any)[prop];
+      (this as any)[prop] = value;
+    }
+  }
+
   public setConfig(config: CardConfig) {
     const tabs = (config.tabs ?? []).map((t) => ({
       ...t,
       cards: t.cards ?? (t.card ? [t.card] : []),
     }));
-
     this._config = { ...config, tabs };
   }
 
@@ -113,7 +130,7 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
-    // Use HA card editor if available AND hass exists
+    // Use HA card editor if available + hass exists
     const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
 
     if (EditorEl) {
@@ -260,92 +277,20 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   static styles = css`
-    :host {
-      display: block;
-      padding: 4px 0;
-    }
-    .hint {
-      opacity: 0.7;
-      font-size: 12px;
-      margin-bottom: 8px;
-    }
-    .section {
-      margin-bottom: 10px;
-    }
-    .switch {
-      display: inline-flex;
-      gap: 10px;
-      align-items: center;
-      font-weight: 600;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .lbl {
-      font-size: 12px;
-      opacity: 0.7;
-      margin-bottom: 4px;
-    }
-    .inp {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(0, 0, 0, 0.2);
-      background: rgba(255, 255, 255, 0.6);
-    }
-    .tabs-header,
-    .cards-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin: 12px 0 8px;
-    }
-    .h,
-    .h2 {
-      font-weight: 800;
-    }
-    .btn {
-      padding: 6px 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(0, 0, 0, 0.2);
-      background: rgba(0, 0, 0, 0.05);
-      cursor: pointer;
-    }
-    .tab {
-      border: 1px solid rgba(0, 0, 0, 0.15);
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 12px;
-    }
-    .tab-top,
-    .card-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .tab-title,
-    .card-title {
-      font-weight: 800;
-    }
-    .card-block {
-      border: 1px dashed rgba(0, 0, 0, 0.25);
-      border-radius: 12px;
-      padding: 10px;
-      margin-top: 10px;
-    }
-    textarea.json {
-      width: 100%;
-      min-height: 140px;
-      padding: 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(0, 0, 0, 0.2);
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size: 12px;
-      background: rgba(255, 255, 255, 0.6);
-    }
+    :host { display:block; padding: 4px 0; }
+    .hint { opacity:.7; font-size:12px; margin-bottom:8px; }
+    .section { margin-bottom:10px; }
+    .switch { display:inline-flex; gap:10px; align-items:center; font-weight:600; }
+    .grid { display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:12px; }
+    .lbl { font-size:12px; opacity:.7; margin-bottom:4px; }
+    .inp { width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(255,255,255,.6); }
+    .tabs-header,.cards-header { display:flex; align-items:center; justify-content:space-between; margin:12px 0 8px; }
+    .h,.h2 { font-weight:800; }
+    .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(0,0,0,.05); cursor:pointer; }
+    .tab { border:1px solid rgba(0,0,0,.15); border-radius:12px; padding:12px; margin-bottom:12px; }
+    .tab-top,.card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .tab-title,.card-title { font-weight:800; }
+    .card-block { border:1px dashed rgba(0,0,0,.25); border-radius:12px; padding:10px; margin-top:10px; }
+    textarea.json { width:100%; min-height:140px; padding:10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background: rgba(255,255,255,.6); }
   `;
 }
