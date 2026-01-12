@@ -210,6 +210,7 @@ export class TabbedStackCard extends LitElement {
 
     .content {
       padding-top: 6px;
+	  --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
     }
   `;
 }

@@ -20,10 +20,9 @@ type CardConfig = {
 @customElement("tabbed-stack-card-editor")
 export class TabbedStackCardEditor extends LitElement {
   @property({ attribute: false }) public hass: any;
-  @state() private _config!: CardConfig;
+  @state() private _config?: CardConfig;
 
   setConfig(config: CardConfig) {
-    // Normalize tabs to cards[]
     const tabs = (config.tabs ?? []).map((t) => ({
       ...t,
       cards: t.cards ?? (t.card ? [t.card] : []),
@@ -43,18 +42,16 @@ export class TabbedStackCardEditor extends LitElement {
     );
   }
 
-  private _setValue(path: string, value: any) {
-    const cfg: any = structuredClone(this._config);
-    const parts = path.split(".");
-    let cur = cfg;
-    for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
-    cur[parts[parts.length - 1]] = value;
+  private _setValue(key: keyof CardConfig, value: any) {
+    const cfg = structuredClone(this._config!);
+    (cfg as any)[key] = value;
     this._emitConfigChanged(cfg);
   }
 
   private _addTab() {
-    const cfg = structuredClone(this._config);
-    const idx = cfg.tabs.length + 1;
+    const cfg = structuredClone(this._config!);
+    const idx = (cfg.tabs?.length ?? 0) + 1;
+    cfg.tabs = cfg.tabs ?? [];
     cfg.tabs.push({
       id: `Tab${idx}`,
       label: `Tab ${idx}`,
@@ -66,7 +63,7 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   private _removeTab(i: number) {
-    const cfg = structuredClone(this._config);
+    const cfg = structuredClone(this._config!);
     cfg.tabs.splice(i, 1);
     if (!cfg.tabs.length) {
       cfg.tabs = [
@@ -80,28 +77,28 @@ export class TabbedStackCardEditor extends LitElement {
   }
 
   private _addCard(tabIndex: number) {
-    const cfg = structuredClone(this._config);
+    const cfg = structuredClone(this._config!);
     cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
-    cfg.tabs[tabIndex].cards.push({ type: "markdown", content: "New card" });
+    cfg.tabs[tabIndex].cards!.push({ type: "markdown", content: "New card" });
     this._emitConfigChanged(cfg);
   }
 
   private _removeCard(tabIndex: number, cardIndex: number) {
-    const cfg = structuredClone(this._config);
+    const cfg = structuredClone(this._config!);
     cfg.tabs[tabIndex].cards?.splice(cardIndex, 1);
     this._emitConfigChanged(cfg);
   }
 
   private _updateCard(tabIndex: number, cardIndex: number, newCardConfig: any) {
-    const cfg = structuredClone(this._config);
+    const cfg = structuredClone(this._config!);
     cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
-    cfg.tabs[tabIndex].cards[cardIndex] = newCardConfig;
+    cfg.tabs[tabIndex].cards![cardIndex] = newCardConfig;
     this._emitConfigChanged(cfg);
   }
 
   private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
-    // Prefer HA built-in card editor if available
-    const EditorEl = customElements.get("hui-card-element-editor");
+    // If HA editor exists and hass is available, use it
+    const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
     if (EditorEl) {
       const el: any = document.createElement("hui-card-element-editor");
       el.hass = this.hass;
@@ -110,17 +107,19 @@ export class TabbedStackCardEditor extends LitElement {
         const value = ev?.detail?.value;
         if (value) this._updateCard(tabIndex, cardIndex, value);
       });
-
       return html`<div class="card-editor">${el}</div>`;
     }
 
-    // Fallback: JSON textarea
+    // Fallback JSON editor (always works)
     return html`
       <div class="card-editor">
-        <ha-textfield
+        <div class="hint">
+          ${this.hass
+            ? "Card-Editor nicht verfügbar → JSON-Fallback."
+            : "Home Assistant Kontext lädt noch… JSON-Fallback aktiv."}
+        </div>
+        <textarea
           class="json"
-          label="Card config (JSON fallback)"
-          .value=${JSON.stringify(cardCfg, null, 2)}
           @change=${(e: any) => {
             try {
               const v = JSON.parse(e.target.value);
@@ -129,117 +128,142 @@ export class TabbedStackCardEditor extends LitElement {
               // ignore parse errors
             }
           }}
-        ></ha-textfield>
+        >${JSON.stringify(cardCfg, null, 2)}</textarea>
       </div>
     `;
   }
 
   render() {
-    if (!this.hass || !this._config) return html``;
+    if (!this._config) {
+      return html`<div class="hint">Konfiguration wird geladen…</div>`;
+    }
 
     return html`
       <div class="section">
-        <ha-switch
-          .checked=${!!this._config.sticky_tabs}
-          @change=${(e: any) => this._setValue("sticky_tabs", e.target.checked)}
-        ></ha-switch>
-        <div class="row">
-          <div class="title">Sticky tabs</div>
-          <div class="desc">Tabs bleiben beim Scrollen oben.</div>
-        </div>
+        <label class="switch">
+          <input
+            type="checkbox"
+            .checked=${!!this._config.sticky_tabs}
+            @change=${(e: any) => this._setValue("sticky_tabs", e.target.checked)}
+          />
+          <span>Sticky tabs</span>
+        </label>
       </div>
 
       <div class="grid">
-        <ha-textfield
-          label="storage_key (optional)"
-          .value=${this._config.storage_key ?? ""}
-          @change=${(e: any) => this._setValue("storage_key", e.target.value || undefined)}
-        ></ha-textfield>
+        <label>
+          <div class="lbl">storage_key (optional)</div>
+          <input
+            class="inp"
+            .value=${this._config.storage_key ?? ""}
+            @input=${(e: any) => this._setValue("storage_key", e.target.value || undefined)}
+          />
+        </label>
 
-        <ha-textfield
-          label="default_tab (optional)"
-          .value=${this._config.default_tab ?? ""}
-          @change=${(e: any) => this._setValue("default_tab", e.target.value || undefined)}
-        ></ha-textfield>
+        <label>
+          <div class="lbl">default_tab (optional)</div>
+          <input
+            class="inp"
+            .value=${this._config.default_tab ?? ""}
+            @input=${(e: any) => this._setValue("default_tab", e.target.value || undefined)}
+          />
+        </label>
       </div>
 
       <div class="tabs-header">
         <div class="h">Tabs</div>
-        <mwc-button @click=${this._addTab} outlined>Add Tab</mwc-button>
+        <button class="btn" @click=${this._addTab}>Add Tab</button>
       </div>
 
-      ${this._config.tabs.map((t, i) => html`
-        <div class="tab">
-          <div class="tab-top">
-            <div class="tab-title">Tab ${i + 1}</div>
-            <mwc-button @click=${() => this._removeTab(i)} outlined>Remove</mwc-button>
-          </div>
-
-          <div class="grid">
-            <ha-textfield
-              label="id"
-              .value=${t.id}
-              @change=${(e: any) => {
-                const cfg = structuredClone(this._config);
-                cfg.tabs[i].id = e.target.value;
-                this._emitConfigChanged(cfg);
-              }}
-            ></ha-textfield>
-
-            <ha-textfield
-              label="label"
-              .value=${t.label ?? ""}
-              @change=${(e: any) => {
-                const cfg = structuredClone(this._config);
-                cfg.tabs[i].label = e.target.value || undefined;
-                this._emitConfigChanged(cfg);
-              }}
-            ></ha-textfield>
-
-            <ha-textfield
-              label="icon (mdi:...)"
-              .value=${t.icon ?? ""}
-              @change=${(e: any) => {
-                const cfg = structuredClone(this._config);
-                cfg.tabs[i].icon = e.target.value || undefined;
-                this._emitConfigChanged(cfg);
-              }}
-            ></ha-textfield>
-          </div>
-
-          <div class="cards-header">
-            <div class="h2">Cards in Tab</div>
-            <mwc-button @click=${() => this._addCard(i)} outlined>Add Card</mwc-button>
-          </div>
-
-          ${(t.cards ?? []).map((c, ci) => html`
-            <div class="card-block">
-              <div class="card-top">
-                <div class="card-title">Card ${ci + 1}</div>
-                <mwc-button @click=${() => this._removeCard(i, ci)} outlined>Remove</mwc-button>
-              </div>
-
-              ${this._renderCardEditor(i, ci, c)}
+      ${this._config.tabs.map(
+        (t, i) => html`
+          <div class="tab">
+            <div class="tab-top">
+              <div class="tab-title">Tab ${i + 1}</div>
+              <button class="btn" @click=${() => this._removeTab(i)}>Remove</button>
             </div>
-          `)}
-        </div>
-      `)}
+
+            <div class="grid">
+              <label>
+                <div class="lbl">id</div>
+                <input
+                  class="inp"
+                  .value=${t.id}
+                  @input=${(e: any) => {
+                    const cfg = structuredClone(this._config!);
+                    cfg.tabs[i].id = e.target.value;
+                    this._emitConfigChanged(cfg);
+                  }}
+                />
+              </label>
+
+              <label>
+                <div class="lbl">label</div>
+                <input
+                  class="inp"
+                  .value=${t.label ?? ""}
+                  @input=${(e: any) => {
+                    const cfg = structuredClone(this._config!);
+                    cfg.tabs[i].label = e.target.value || undefined;
+                    this._emitConfigChanged(cfg);
+                  }}
+                />
+              </label>
+
+              <label>
+                <div class="lbl">icon (mdi:...)</div>
+                <input
+                  class="inp"
+                  .value=${t.icon ?? ""}
+                  @input=${(e: any) => {
+                    const cfg = structuredClone(this._config!);
+                    cfg.tabs[i].icon = e.target.value || undefined;
+                    this._emitConfigChanged(cfg);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div class="cards-header">
+              <div class="h2">Cards in Tab</div>
+              <button class="btn" @click=${() => this._addCard(i)}>Add Card</button>
+            </div>
+
+            ${(t.cards ?? []).map(
+              (c, ci) => html`
+                <div class="card-block">
+                  <div class="card-top">
+                    <div class="card-title">Card ${ci + 1}</div>
+                    <button class="btn" @click=${() => this._removeCard(i, ci)}>Remove</button>
+                  </div>
+                  ${this._renderCardEditor(i, ci, c)}
+                </div>
+              `
+            )}
+          </div>
+        `
+      )}
     `;
   }
 
   static styles = css`
-    .section {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 14px;
+    :host {
+      display: block;
+      padding: 4px 0;
     }
-    .row .title {
-      font-weight: 600;
-    }
-    .row .desc {
+    .hint {
       opacity: 0.7;
       font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .section {
+      margin-bottom: 10px;
+    }
+    .switch {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      font-weight: 600;
     }
     .grid {
       display: grid;
@@ -247,14 +271,33 @@ export class TabbedStackCardEditor extends LitElement {
       gap: 10px;
       margin-bottom: 12px;
     }
+    .lbl {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-bottom: 4px;
+    }
+    .inp {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,0.2);
+      background: rgba(255,255,255,0.6);
+    }
     .tabs-header, .cards-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin: 14px 0 8px;
+      margin: 12px 0 8px;
     }
     .h, .h2 {
-      font-weight: 700;
+      font-weight: 800;
+    }
+    .btn {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,0.2);
+      background: rgba(0,0,0,0.05);
+      cursor: pointer;
     }
     .tab {
       border: 1px solid rgba(0,0,0,0.15);
@@ -269,7 +312,7 @@ export class TabbedStackCardEditor extends LitElement {
       margin-bottom: 10px;
     }
     .tab-title, .card-title {
-      font-weight: 700;
+      font-weight: 800;
     }
     .card-block {
       border: 1px dashed rgba(0,0,0,0.25);
@@ -277,11 +320,15 @@ export class TabbedStackCardEditor extends LitElement {
       padding: 10px;
       margin-top: 10px;
     }
-    .card-editor {
-      margin-top: 8px;
-    }
-    ha-textfield.json {
+    textarea.json {
       width: 100%;
+      min-height: 140px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,0.2);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      background: rgba(255,255,255,0.6);
     }
   `;
 }
