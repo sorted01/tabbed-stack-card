@@ -1,336 +1,453 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import type { LovelaceCard } from "custom-card-helpers";
 
-/* -----------------------------------------------------------
-   TEIL 1: DER EDITOR
-   ----------------------------------------------------------- */
+interface TabConfig {
+  id: string;
+  label?: string;
+  icon?: string;
+  cards?: any[];
+  card?: any; // backward compat
+}
+
+interface CardConfig {
+  type: string;
+  tabs: TabConfig[];
+  default_tab?: string;
+  storage_key?: string;
+  sticky_tabs?: boolean;
+}
+
+declare global {
+  interface Window {
+    loadCardHelpers?: () => Promise<any>;
+    customCards?: Array<any>;
+  }
+}
+
+/* ------------------------- Editor (same file) ------------------------- */
+
 @customElement("tabbed-stack-card-editor")
-export class TabbedStackCardEditor extends LitElement {
-  @property({ attribute: false }) public hass?: any;
-  @property({ attribute: false }) public lovelace?: any;
-  @state() private _config?: any;
+class TabbedStackCardEditor extends LitElement {
+  @property({ attribute: false }) public hass: any;
+  @property({ attribute: false }) public lovelace: any;
 
-  public setConfig(config: any): void {
+  // HA sometimes assigns config via property instead of setConfig()
+  @property({ attribute: false })
+  set config(value: CardConfig | undefined) {
+    if (value) this.setConfig(value);
+  }
+
+  @state() private _config?: CardConfig;
+
+  constructor() {
+    super();
+    this._upgradeProperty("config");
+    this._upgradeProperty("hass");
+    this._upgradeProperty("lovelace");
+  }
+
+  private _upgradeProperty(prop: string) {
+    if (Object.prototype.hasOwnProperty.call(this, prop)) {
+      const value = (this as any)[prop];
+      delete (this as any)[prop];
+      (this as any)[prop] = value;
+    }
+  }
+
+  public setConfig(config: CardConfig) {
+    const tabs = (config.tabs ?? []).map((t) => ({
+      ...t,
+      cards: t.cards ?? (t.card ? [t.card] : []),
+    }));
+    this._config = { ...config, tabs };
+  }
+
+  private _emitConfigChanged(config: CardConfig) {
     this._config = config;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
-  private _emitConfigChanged(config: any) {
-    const event = new CustomEvent("config-changed", {
-      detail: { config },
-      bubbles: true,
-      composed: true,
-    });
-    this.dispatchEvent(event);
+  private _clone(): CardConfig {
+    return JSON.parse(JSON.stringify(this._config!));
   }
 
-  private _cloneConfig() {
-    return JSON.parse(JSON.stringify(this._config));
-  }
-
-  private _handleValueChanged(ev: any) {
-    if (!this._config) return;
-    const target = ev.target.configValue;
-    const value = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
-
-    const newConfig = this._cloneConfig();
-    newConfig[target] = value;
-    this._emitConfigChanged(newConfig);
+  private _setValue(key: keyof CardConfig, value: any) {
+    const cfg = this._clone();
+    (cfg as any)[key] = value;
+    this._emitConfigChanged(cfg);
   }
 
   private _addTab() {
-    const newConfig = this._cloneConfig();
-    const newTabs = [...(newConfig.tabs || [])];
-    const id = `tab_${Date.now()}`;
-    newTabs.push({ id, label: "Neuer Tab", icon: "mdi:star", cards: [] });
-    newConfig.tabs = newTabs;
-    this._emitConfigChanged(newConfig);
+    const cfg = this._clone();
+    const idx = (cfg.tabs?.length ?? 0) + 1;
+    cfg.tabs = cfg.tabs ?? [];
+    cfg.tabs.push({
+      id: `Tab${idx}`,
+      label: `Tab ${idx}`,
+      icon: "mdi:apps",
+      cards: [{ type: "markdown", content: `Hello Tab ${idx}` }],
+    });
+    if (!cfg.default_tab) cfg.default_tab = cfg.tabs[0].id;
+    this._emitConfigChanged(cfg);
   }
 
-  private _removeTab(index: number) {
-    const newConfig = this._cloneConfig();
-    newConfig.tabs.splice(index, 1);
-    this._emitConfigChanged(newConfig);
-  }
-
-  private _handleCardChanged(tabIndex: number, cardIndex: number, ev: any) {
-    ev.stopPropagation();
-    const newConfig = this._cloneConfig();
-    newConfig.tabs[tabIndex].cards[cardIndex] = ev.detail.value;
-    this._emitConfigChanged(newConfig);
+  private _removeTab(i: number) {
+    const cfg = this._clone();
+    cfg.tabs.splice(i, 1);
+    if (!cfg.tabs.length) {
+      cfg.tabs = [
+        {
+          id: "Tab1",
+          label: "Tab 1",
+          icon: "mdi:apps",
+          cards: [{ type: "markdown", content: "Hello" }],
+        },
+      ];
+    }
+    if (cfg.default_tab && !cfg.tabs.some((t) => t.id === cfg.default_tab)) {
+      cfg.default_tab = cfg.tabs[0].id;
+    }
+    this._emitConfigChanged(cfg);
   }
 
   private _addCard(tabIndex: number) {
-    const newConfig = this._cloneConfig();
-    if (!newConfig.tabs[tabIndex].cards) newConfig.tabs[tabIndex].cards = [];
-    newConfig.tabs[tabIndex].cards.push({ type: "markdown", content: "Neue Karte" });
-    this._emitConfigChanged(newConfig);
+    const cfg = this._clone();
+    cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
+    cfg.tabs[tabIndex].cards!.push({ type: "markdown", content: "New card" });
+    this._emitConfigChanged(cfg);
   }
 
   private _removeCard(tabIndex: number, cardIndex: number) {
-      const newConfig = this._cloneConfig();
-      newConfig.tabs[tabIndex].cards.splice(cardIndex, 1);
-      this._emitConfigChanged(newConfig);
+    const cfg = this._clone();
+    cfg.tabs[tabIndex].cards?.splice(cardIndex, 1);
+    this._emitConfigChanged(cfg);
   }
 
-  render() {
-    // FIX: Wir warten hier NICHT mehr auf this.hass, nur auf die Config
-    if (!this._config) {
-      return html`<div style="padding: 20px;">Lade Konfiguration...</div>`;
+  private _updateCard(tabIndex: number, cardIndex: number, newCardConfig: any) {
+    const cfg = this._clone();
+    cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
+    cfg.tabs[tabIndex].cards![cardIndex] = newCardConfig;
+    this._emitConfigChanged(cfg);
+  }
+
+  private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
+    const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
+
+    if (EditorEl) {
+      const el: any = document.createElement("hui-card-element-editor");
+      el.hass = this.hass;
+      el.value = cardCfg;
+      el.addEventListener("value-changed", (ev: any) => {
+        const value = ev?.detail?.value;
+        if (value) this._updateCard(tabIndex, cardIndex, value);
+      });
+      return html`<div class="card-editor">${el}</div>`;
     }
 
     return html`
-      <div class="editor-container">
-        <div class="global-settings">
-          <div class="row">
-             <label>Storage Key (optional)</label>
-             <input class="inp" .value=${this._config.storage_key || ""} .configValue=${"storage_key"} @input=${this._handleValueChanged}>
-          </div>
-          <div class="row checkbox">
-             <input type="checkbox" id="sticky" .checked=${this._config.sticky_tabs} .configValue=${"sticky_tabs"} @change=${this._handleValueChanged}>
-             <label for="sticky">Sticky Tabs (oben fixiert)</label>
-          </div>
+      <div class="card-editor">
+        <div class="hint">
+          ${this.hass ? "Card-Editor nicht verfügbar → JSON-Fallback." : "HA lädt noch… JSON-Fallback aktiv."}
         </div>
-
-        <h3>Tabs</h3>
-        ${(this._config.tabs || []).map((tab: any, tIdx: number) => html`
-          <div class="tab-card">
-            <div class="tab-header">
-               <div class="inputs">
-                  <input class="inp" placeholder="Label" .value=${tab.label || ""} @input=${(e: any) => {
-                    const cfg = this._cloneConfig(); cfg.tabs[tIdx].label = e.target.value; this._emitConfigChanged(cfg);
-                  }}>
-                  <input class="inp" placeholder="Icon (mdi:...)" .value=${tab.icon || ""} @input=${(e: any) => {
-                    const cfg = this._cloneConfig(); cfg.tabs[tIdx].icon = e.target.value; this._emitConfigChanged(cfg);
-                  }}>
-               </div>
-               <button class="btn danger" @click=${() => this._removeTab(tIdx)}>X</button>
-            </div>
-
-            <div class="cards-list">
-              ${(tab.cards || []).map((card: any, cIdx: number) => html`
-                <div class="card-item">
-                   <div class="card-top">
-                      <span>${card.type}</span>
-                      <button class="btn-xs danger" @click=${() => this._removeCard(tIdx, cIdx)}>Löschen</button>
-                   </div>
-                   <hui-card-element-editor
-                      .hass=${this.hass}
-                      .value=${card}
-                      .lovelace=${this.lovelace}
-                      @value-changed=${(ev: any) => this._handleCardChanged(tIdx, cIdx, ev)}
-                   ></hui-card-element-editor>
-                </div>
-              `)}
-              <button class="btn add-btn" @click=${() => this._addCard(tIdx)}>+ Karte hinzufügen</button>
-            </div>
-          </div>
-        `)}
-        <button class="btn big-add" @click=${this._addTab}>Neuen Tab hinzufügen</button>
+        <textarea
+          class="json"
+          @change=${(e: any) => {
+            try {
+              const v = JSON.parse(e.target.value);
+              this._updateCard(tabIndex, cardIndex, v);
+            } catch {}
+          }}
+        >${JSON.stringify(cardCfg, null, 2)}</textarea>
       </div>
     `;
   }
 
+  render() {
+    if (!this._config) return html`<div class="hint">Konfiguration wird geladen…</div>`;
+
+    return html`
+      <div class="section">
+        <label class="switch">
+          <input
+            type="checkbox"
+            .checked=${!!this._config.sticky_tabs}
+            @change=${(e: any) => this._setValue("sticky_tabs", e.target.checked)}
+          />
+          <span>Sticky tabs</span>
+        </label>
+      </div>
+
+      <div class="grid">
+        <label>
+          <div class="lbl">storage_key (optional)</div>
+          <input
+            class="inp"
+            .value=${this._config.storage_key ?? ""}
+            @input=${(e: any) => this._setValue("storage_key", e.target.value || undefined)}
+          />
+        </label>
+
+        <label>
+          <div class="lbl">default_tab (optional)</div>
+          <input
+            class="inp"
+            .value=${this._config.default_tab ?? ""}
+            @input=${(e: any) => this._setValue("default_tab", e.target.value || undefined)}
+          />
+        </label>
+      </div>
+
+      <div class="tabs-header">
+        <div class="h">Tabs</div>
+        <button class="btn" @click=${this._addTab}>Add Tab</button>
+      </div>
+
+      ${this._config.tabs.map(
+        (t, i) => html`
+          <div class="tab">
+            <div class="tab-top">
+              <div class="tab-title">Tab ${i + 1}</div>
+              <button class="btn" @click=${() => this._removeTab(i)}>Remove</button>
+            </div>
+
+            <div class="grid">
+              <label>
+                <div class="lbl">id</div>
+                <input
+                  class="inp"
+                  .value=${t.id}
+                  @input=${(e: any) => {
+                    const cfg = this._clone();
+                    cfg.tabs[i].id = e.target.value;
+                    this._emitConfigChanged(cfg);
+                  }}
+                />
+              </label>
+
+              <label>
+                <div class="lbl">label</div>
+                <input
+                  class="inp"
+                  .value=${t.label ?? ""}
+                  @input=${(e: any) => {
+                    const cfg = this._clone();
+                    cfg.tabs[i].label = e.target.value || undefined;
+                    this._emitConfigChanged(cfg);
+                  }}
+                />
+              </label>
+
+              <label>
+                <div class="lbl">icon (mdi:...)</div>
+                <input
+                  class="inp"
+                  .value=${t.icon ?? ""}
+                  @input=${(e: any) => {
+                    const cfg = this._clone();
+                    cfg.tabs[i].icon = e.target.value || undefined;
+                    this._emitConfigChanged(cfg);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div class="cards-header">
+              <div class="h2">Cards in Tab</div>
+              <button class="btn" @click=${() => this._addCard(i)}>Add Card</button>
+            </div>
+
+            ${(t.cards ?? []).map(
+              (c, ci) => html`
+                <div class="card-block">
+                  <div class="card-top">
+                    <div class="card-title">Card ${ci + 1}</div>
+                    <button class="btn" @click=${() => this._removeCard(i, ci)}>Remove</button>
+                  </div>
+                  ${this._renderCardEditor(i, ci, c)}
+                </div>
+              `
+            )}
+          </div>
+        `
+      )}
+    `;
+  }
+
   static styles = css`
-    .editor-container { padding: 10px; border: 1px solid transparent; }
-    .inp { padding: 8px; width: 100%; box-sizing: border-box; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 5px;}
-    .row { margin-bottom: 10px; }
-    .checkbox { display: flex; align-items: center; gap: 10px; }
-    .tab-card { background: rgba(127,127,127,0.1); padding: 10px; border-radius: 8px; margin-bottom: 15px; border: 1px solid rgba(127,127,127,0.2); }
-    .tab-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
-    .inputs { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-    .card-item { background: var(--card-background-color, #fff); border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
-    .card-top { display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 5px; opacity: 0.7; font-weight: bold; text-transform: uppercase; }
-    .btn { cursor: pointer; border: none; padding: 5px 10px; border-radius: 5px; background: #ddd; }
-    .btn.danger { background: #f44336; color: white; }
-    .btn.add-btn { background: #2196F3; color: white; width: 100%; margin-top: 5px;}
-    .btn.big-add { background: #4CAF50; color: white; width: 100%; padding: 10px; font-weight: bold;}
-    .btn-xs { font-size: 10px; padding: 2px 5px; }
+    :host { display:block; padding: 4px 0; }
+    .hint { opacity:.7; font-size:12px; margin-bottom:8px; }
+    .section { margin-bottom:10px; }
+    .switch { display:inline-flex; gap:10px; align-items:center; font-weight:600; }
+    .grid { display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:12px; }
+    .lbl { font-size:12px; opacity:.7; margin-bottom:4px; }
+    .inp { width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(255,255,255,.6); }
+    .tabs-header,.cards-header { display:flex; align-items:center; justify-content:space-between; margin:12px 0 8px; }
+    .h,.h2 { font-weight:800; }
+    .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(0,0,0,.05); cursor:pointer; }
+    .tab { border:1px solid rgba(0,0,0,.15); border-radius:12px; padding:12px; margin-bottom:12px; }
+    .tab-top,.card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .tab-title,.card-title { font-weight:800; }
+    .card-block { border:1px dashed rgba(0,0,0,.25); border-radius:12px; padding:10px; margin-top:10px; }
+    textarea.json { width:100%; min-height:140px; padding:10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background: rgba(255,255,255,.6); }
   `;
 }
 
-/* -----------------------------------------------------------
-   TEIL 2: DIE KARTE
-   ----------------------------------------------------------- */
+/* -------------------------- Card (same file) -------------------------- */
+
 @customElement("tabbed-stack-card")
 export class TabbedStackCard extends LitElement {
-  @state() private _config: any;
-  @state() private _activeTab: string = "";
-  @state() private _error?: string;
-  
-  private _cardElement: any;
-  private _helpers: any;
-  private _hass: any;
+  @state() private _config!: CardConfig;
+  @state() private _activeTab!: string;
 
-  // Editor Konfiguration
+  private _card?: LovelaceCard;
+  private _helpers?: any;
+
+  private _hass: any;
+  public set hass(value: any) {
+    this._hass = value;
+    if (this._card) this._card.hass = value;
+    this.requestUpdate();
+  }
+  public get hass() {
+    return this._hass;
+  }
+
   static getConfigElement() {
-    return document.createElement("tabbed-stack-card-editor");
+    // Ensure setConfig exists even before upgrade
+    const el: any = document.createElement("tabbed-stack-card-editor");
+    if (typeof el.setConfig !== "function") {
+      el.setConfig = (cfg: any) => (el.config = cfg);
+    }
+    return el;
   }
 
   static getStubConfig() {
     return {
-      sticky_tabs: false,
+      sticky_tabs: true,
+      storage_key: "tabs_default",
+      default_tab: "Licht",
       tabs: [
-        { id: "t1", label: "Tab 1", icon: "mdi:home", cards: [{ type: "markdown", content: "Willkommen!" }] },
-        { id: "t2", label: "Tab 2", icon: "mdi:lightbulb", cards: [] }
-      ]
+        { id: "Licht", label: "Licht", icon: "mdi:lamp", cards: [{ type: "markdown", content: "Hello Licht" }] },
+        { id: "Rollo", label: "Rollo", icon: "mdi:roller-shade", cards: [{ type: "markdown", content: "Hello Rollo" }] },
+      ],
     };
   }
 
-  public set hass(value: any) {
-    this._hass = value;
-    if (this._cardElement) {
-      this._cardElement.hass = value;
-    }
-  }
+  setConfig(config: CardConfig) {
+    if (!config?.tabs?.length) throw new Error("tabs required");
 
-  public get hass() {
-      return this._hass;
-  }
+    const normalizedTabs = config.tabs.map((t) => ({
+      ...t,
+      cards: t.cards ?? (t.card ? [t.card] : []),
+    }));
 
-  public setConfig(config: any) {
-    if (!config) throw new Error("Keine Konfiguration");
-    this._config = config;
+    this._config = { ...config, tabs: normalizedTabs };
 
-    // Standard-Tab setzen
-    if (this._config.tabs && this._config.tabs.length > 0) {
-        const stored = this._config.storage_key ? localStorage.getItem(this._config.storage_key) : null;
-        // Validiere, ob der gespeicherte Tab noch existiert
-        const tabExists = stored && this._config.tabs.some((t: any) => t.id === stored);
-        
-        if (tabExists) {
-            this._activeTab = stored!;
-        } else if (!this._activeTab) {
-            this._activeTab = this._config.default_tab || this._config.tabs[0].id;
-        }
-    }
-    
-    // Karte bauen starten
-    this._buildCard();
+    const stored = this._config.storage_key ? localStorage.getItem(this._config.storage_key) : null;
+    this._activeTab = stored || this._config.default_tab || this._config.tabs[0].id;
+
+    void this._buildCard();
   }
 
   private _setTab(id: string) {
     this._activeTab = id;
-    if (this._config.storage_key) {
-      localStorage.setItem(this._config.storage_key, id);
-    }
-    this._buildCard();
+    if (this._config.storage_key) localStorage.setItem(this._config.storage_key, id);
+    void this._buildCard();
   }
 
   private async _buildCard() {
-    if (!this._config || !this._activeTab) return;
+    if (!this._config?.tabs?.length) return;
 
-    try {
-        // 1. Helpers laden, falls noch nicht da
-        if (!this._helpers) {
-            if ((window as any).loadCardHelpers) {
-                this._helpers = await (window as any).loadCardHelpers();
-            } else {
-                throw new Error("Card Helpers nicht verfügbar.");
-            }
-        }
+    const tab =
+      this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
-        // 2. Aktuellen Tab finden
-        const tab = this._config.tabs.find((t: any) => t.id === this._activeTab) || this._config.tabs[0];
-        if (!tab) return;
-
-        // 3. Konfiguration für den Inhalt erstellen (Vertical Stack)
-        const cards = tab.cards || [];
-        const stackConfig = {
-            type: "vertical-stack",
-            cards: cards
-        };
-
-        // 4. Element erzeugen
-        this._cardElement = this._helpers.createCardElement(stackConfig);
-        
-        // 5. Hass sofort übergeben, falls vorhanden
-        if (this._hass) {
-            this._cardElement.hass = this._hass;
-        }
-
-        // 6. UI Update anfordern
-        this.requestUpdate();
-
-    } catch (e: any) {
-        console.error("TabbedStackCard Error:", e);
-        this._error = e.message;
-        this.requestUpdate();
+    if (!this._helpers) {
+      if (!window.loadCardHelpers) throw new Error("window.loadCardHelpers missing.");
+      this._helpers = await window.loadCardHelpers();
     }
+
+    const cards = tab.cards ?? [];
+    const cardConfig =
+      cards.length <= 1
+        ? (cards[0] ?? { type: "markdown", content: "No card configured" })
+        : { type: "vertical-stack", cards };
+
+    this._card = this._helpers.createCardElement(cardConfig);
+    if (this._hass) this._card.hass = this._hass;
+    this.requestUpdate();
   }
 
   render() {
     if (!this._config) return html``;
-    
-    // Fallback falls Fehler aufgetreten
-    if (this._error) return html`<div style="color: red; padding: 10px; border: 1px solid red;">Fehler: ${this._error}</div>`;
-
-    const tabs = this._config.tabs || [];
 
     return html`
-      <div class="tabs-container ${this._config.sticky_tabs ? "sticky" : ""}">
-        <div class="tabs-scroll">
-            ${tabs.map((t: any) => html`
-            <button 
-                class="chip ${t.id === this._activeTab ? "active" : ""}"
-                @click=${() => this._setTab(t.id)}
+      <div class="tabs ${this._config.sticky_tabs ? "sticky" : ""}">
+        ${this._config.tabs.map(
+          (t) => html`
+            <button
+              class="chip ${t.id === this._activeTab ? "active" : ""}"
+              @click=${() => this._setTab(t.id)}
             >
-                ${t.icon ? html`<ha-icon .icon="${t.icon}"></ha-icon>` : ""}
-                <span>${t.label || t.id}</span>
+              ${t.icon ? html`<ha-icon icon="${t.icon}"></ha-icon>` : ""}
+              <span>${t.label ?? t.id}</span>
             </button>
-            `)}
-        </div>
+          `
+        )}
       </div>
 
-      <div class="content">
-        ${this._cardElement 
-            ? this._cardElement 
-            : html`<div class="loading">Lade Karten... (Helpers: ${!!this._helpers})</div>`
-        }
-      </div>
+      <div class="content">${this._card ?? ""}</div>
     `;
   }
 
   static styles = css`
-    :host { display: block; }
-    .tabs-container { 
-        padding: 8px 0; 
-        background: var(--tsc-bg, transparent);
-        margin: 0 -4px; /* Leichter Überhang für bessere Optik */
+    :host { display:block; width:100%; max-width:100%; }
+    .tabs {
+      display:flex; justify-content:center;
+      gap: var(--tsc-chip-gap, 12px);
+      padding:10px 0 6px;
+      background: var(--tsc-tabs-bg, transparent);
+      z-index:2;
     }
-    .tabs-container.sticky {
-        position: sticky; top: 0; z-index: 5;
-        background: var(--card-background-color, rgba(255,255,255,0.9));
-        backdrop-filter: blur(5px);
-    }
-    .tabs-scroll {
-        display: flex; gap: 8px; overflow-x: auto; padding: 0 4px;
-        scrollbar-width: none; /* Firefox */
-    }
-    .tabs-scroll::-webkit-scrollbar { display: none; }
-    
+    .tabs.sticky { position: sticky; top: 0; z-index: 10; }
     .chip {
-        display: flex; align-items: center; gap: 6px;
-        padding: 8px 16px; border-radius: 18px; border: none;
-        background: var(--secondary-background-color, #e0e0e0);
-        color: var(--primary-text-color);
-        font-weight: 500; cursor: pointer; white-space: nowrap;
-        transition: background 0.2s;
+      display:inline-flex; align-items:center; gap:8px;
+      padding: var(--tsc-chip-padding, 10px 18px);
+      border-radius: var(--tsc-chip-radius, 999px);
+      border:none; cursor:pointer;
+      background: var(--tsc-chip-bg, rgba(0,0,0,0.18));
+      color: var(--primary-text-color);
+      font-size:14px; line-height:1;
+      user-select:none; -webkit-tap-highlight-color:transparent;
     }
     .chip.active {
-        background: var(--primary-color, #03a9f4);
-        color: var(--text-primary-color, #fff);
+      background: var(--tsc-chip-bg-active, var(--primary-color));
+      color: var(--tsc-chip-fg-active, var(--text-primary-color, var(--primary-text-color)));
     }
-    .chip.active ha-icon { color: inherit; }
-    
-    .content { margin-top: 8px; min-height: 50px; }
-    .loading { opacity: 0.6; font-style: italic; padding: 20px; text-align: center;}
+    .chip.active ha-icon {
+      color: var(--tsc-chip-fg-active, var(--text-primary-color, var(--primary-text-color)));
+    }
+    ha-icon { --mdc-icon-size: var(--tsc-chip-icon-size, 22px); }
+    .content {
+      padding-top: 6px;
+      --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
+      width:100%; max-width:100%;
+    }
+    .content > * { display:block; width:100%; max-width:100%; }
   `;
 }
 
-// Registrierung am Ende
-(window as any).customCards = (window as any).customCards || [];
-(window as any).customCards.push({
+// Card picker registration
+window.customCards = window.customCards || [];
+window.customCards.push({
   type: "tabbed-stack-card",
   name: "Tabbed Stack Card",
-  description: "Tabs für deine Karten",
+  description: "Tabbed navigation with multiple cards per tab (Bubble-style).",
+  preview: true,
 });
