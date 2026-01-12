@@ -2,7 +2,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { LovelaceCard } from "custom-card-helpers";
 
-// IMPORTANT: bundle editor into same output
+// Bundle the editor into the same JS output
 import "./tabbed-stack-card-editor";
 
 interface TabConfig {
@@ -10,10 +10,10 @@ interface TabConfig {
   label?: string;
   icon?: string;
 
-  // NEW: multiple cards per tab
+  // Preferred: multiple cards per tab
   cards?: any[];
 
-  // BACKWARD COMPAT: single card
+  // Backward compatibility: single card
   card?: any;
 }
 
@@ -33,14 +33,15 @@ declare global {
 
 @customElement("tabbed-stack-card")
 export class TabbedStackCard extends LitElement {
-  @property({ attribute: false }) hass: any;
+  @property({ attribute: false }) public hass: any;
+
   @state() private _config!: CardConfig;
   @state() private _activeTab!: string;
 
   private _card?: LovelaceCard;
   private _helpers?: any;
 
-  // ---- UI editor hooks ----
+  // ---- Visual editor integration ----
   static getConfigElement() {
     return document.createElement("tabbed-stack-card-editor");
   }
@@ -50,31 +51,42 @@ export class TabbedStackCard extends LitElement {
       type: "custom:tabbed-stack-card",
       sticky_tabs: true,
       storage_key: "tabs_default",
-      default_tab: "Tab1",
+      default_tab: "Licht",
       tabs: [
         {
-          id: "Tab1",
-          label: "Tab 1",
+          id: "Licht",
+          label: "Licht",
           icon: "mdi:lamp",
-          cards: [{ type: "markdown", content: "Hello Tab 1" }],
+          cards: [{ type: "markdown", content: "Hello Licht" }],
         },
         {
-          id: "Tab2",
-          label: "Tab 2",
+          id: "Rollo",
+          label: "Rollo",
           icon: "mdi:roller-shade",
-          cards: [{ type: "markdown", content: "Hello Tab 2" }],
+          cards: [{ type: "markdown", content: "Hello Rollo" }],
         },
       ],
     };
   }
 
   setConfig(config: CardConfig) {
-    if (!config?.tabs?.length) throw new Error("tabs required");
+    if (!config?.tabs?.length) {
+      throw new Error("tabs required");
+    }
 
-    this._config = config;
+    // Normalize: if someone still uses tab.card, keep it working
+    const normalizedTabs = config.tabs.map((t) => ({
+      ...t,
+      cards: t.cards ?? (t.card ? [t.card] : []),
+    }));
 
-    const stored = config.storage_key ? localStorage.getItem(config.storage_key) : null;
-    this._activeTab = stored || config.default_tab || config.tabs[0].id;
+    this._config = { ...config, tabs: normalizedTabs };
+
+    const stored = this._config.storage_key
+      ? localStorage.getItem(this._config.storage_key)
+      : null;
+
+    this._activeTab = stored || this._config.default_tab || this._config.tabs[0].id;
 
     void this._buildCard();
   }
@@ -99,19 +111,20 @@ export class TabbedStackCard extends LitElement {
     const tab =
       this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
 
-    // Load Lovelace helpers
+    // Load Home Assistant Lovelace helpers
     if (!this._helpers) {
       if (!window.loadCardHelpers) {
-        throw new Error("Home Assistant card helpers not found (window.loadCardHelpers missing).");
+        throw new Error(
+          "Home Assistant card helpers not found (window.loadCardHelpers missing)."
+        );
       }
       this._helpers = await window.loadCardHelpers();
     }
 
-    // NEW: support multiple cards
-    const cards = tab.cards ?? (tab.card ? [tab.card] : []);
+    const cards = tab.cards ?? [];
     const cardConfig =
       cards.length <= 1
-        ? cards[0] ?? { type: "markdown", content: "No card configured" }
+        ? (cards[0] ?? { type: "markdown", content: "No card configured" })
         : { type: "vertical-stack", cards };
 
     this._card = this._helpers.createCardElement(cardConfig);
@@ -138,13 +151,17 @@ export class TabbedStackCard extends LitElement {
         )}
       </div>
 
-      <div class="content">${this._card ?? ""}</div>
+      <div class="content">
+        ${this._card ?? ""}
+      </div>
     `;
   }
 
   static styles = css`
     :host {
       display: block;
+      width: 100%;
+      max-width: 100%;
     }
 
     .tabs {
@@ -152,12 +169,11 @@ export class TabbedStackCard extends LitElement {
       justify-content: center;
       gap: var(--tsc-chip-gap, 12px);
       padding: 10px 0 6px;
-
-      /* default: blend with surrounding UI */
       background: var(--tsc-tabs-bg, transparent);
       z-index: 2;
     }
 
+    /* Sticky inside scroll containers (Bubble popup works well) */
     .tabs.sticky {
       position: sticky;
       top: 0;
@@ -173,7 +189,7 @@ export class TabbedStackCard extends LitElement {
       border: none;
       cursor: pointer;
 
-      /* Theme-friendly defaults (works for everyone) */
+      /* Theme-friendly defaults */
       background: var(--tsc-chip-bg, rgba(0, 0, 0, 0.18));
       color: var(--primary-text-color);
 
@@ -184,7 +200,7 @@ export class TabbedStackCard extends LitElement {
     }
 
     .chip.active {
-      /* Theme default: primary */
+      /* Default active color from theme */
       background: var(--tsc-chip-bg-active, var(--primary-color));
       color: var(
         --tsc-chip-fg-active,
@@ -210,7 +226,19 @@ export class TabbedStackCard extends LitElement {
 
     .content {
       padding-top: 6px;
-	  --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
+
+      /* Prevent Bubble/global styles from breaking spacing inside our vertical-stack */
+      --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
+
+      width: 100%;
+      max-width: 100%;
+    }
+
+    /* Ensure inner card takes full width and doesn't get weird layout constraints */
+    .content > * {
+      display: block;
+      width: 100%;
+      max-width: 100%;
     }
   `;
 }
