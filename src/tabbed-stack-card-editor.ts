@@ -1,296 +1,194 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 
-type TabConfig = {
-  id: string;
-  label?: string;
-  icon?: string;
-  cards?: any[];
-  card?: any; // backward compat
-};
-
-type CardConfig = {
-  type: string;
-  tabs: TabConfig[];
-  default_tab?: string;
-  storage_key?: string;
-  sticky_tabs?: boolean;
-};
-
 @customElement("tabbed-stack-card-editor")
 export class TabbedStackCardEditor extends LitElement {
-  @property({ attribute: false }) public hass: any;
-  @property({ attribute: false }) public lovelace: any;
+  @property({ attribute: false }) public hass?: any;
+  @property({ attribute: false }) public lovelace?: any;
 
-  // HA sometimes assigns config via property
-  @property({ attribute: false })
-  set config(value: CardConfig | undefined) {
-    if (value) this.setConfig(value);
-  }
+  @state() private _config?: any;
 
-  @state() private _config?: CardConfig;
-
-  constructor() {
-    super();
-
-    // Handle properties set on the element BEFORE it was upgraded
-    this._upgradeProperty("config");
-    this._upgradeProperty("hass");
-    this._upgradeProperty("lovelace");
-  }
-
-  private _upgradeProperty(prop: string) {
-    if (Object.prototype.hasOwnProperty.call(this, prop)) {
-      const value = (this as any)[prop];
-      delete (this as any)[prop];
-      (this as any)[prop] = value;
-    }
-  }
-
-  public setConfig(config: CardConfig) {
-    const tabs = (config.tabs ?? []).map((t) => ({
-      ...t,
-      cards: t.cards ?? (t.card ? [t.card] : []),
-    }));
-    this._config = { ...config, tabs };
-  }
-
-  private _emitConfigChanged(config: CardConfig) {
+  // HA ruft diese Methode auf, um die Konfiguration zu übergeben
+  public setConfig(config: any): void {
     this._config = config;
-    this.dispatchEvent(
-      new CustomEvent("config-changed", {
-        detail: { config },
-        bubbles: true,
-        composed: true,
-      })
-    );
   }
 
-  private _clone(): CardConfig {
-    return JSON.parse(JSON.stringify(this._config!));
+  // Hilfsmethode: Sendet die neue Config an Home Assistant
+  private _emitConfigChanged(config: any) {
+    const event = new CustomEvent("config-changed", {
+      detail: { config },
+      bubbles: true,
+      composed: true,
+    });
+    this.dispatchEvent(event);
   }
 
-  private _setValue(key: keyof CardConfig, value: any) {
-    const cfg = this._clone();
-    (cfg as any)[key] = value;
-    this._emitConfigChanged(cfg);
+  private _cloneConfig() {
+    return JSON.parse(JSON.stringify(this._config));
+  }
+
+  private _handleValueChanged(ev: any) {
+    if (!this._config || !this.hass) return;
+    const target = ev.target.configValue;
+    const value = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+
+    if (this._config[target] === value) return;
+
+    const newConfig = this._cloneConfig();
+    if (value === "" || value === undefined) {
+      delete newConfig[target];
+    } else {
+      newConfig[target] = value;
+    }
+    this._emitConfigChanged(newConfig);
   }
 
   private _addTab() {
-    const cfg = this._clone();
-    const idx = (cfg.tabs?.length ?? 0) + 1;
-    cfg.tabs = cfg.tabs ?? [];
-    cfg.tabs.push({
-      id: `Tab${idx}`,
-      label: `Tab ${idx}`,
-      icon: "mdi:apps",
-      cards: [{ type: "markdown", content: `Hello Tab ${idx}` }],
+    const newConfig = this._cloneConfig();
+    const newTabs = [...(newConfig.tabs || [])];
+    const id = `tab_${Date.now()}`;
+    newTabs.push({
+      id,
+      label: `Neuer Tab`,
+      icon: "mdi:border-all",
+      cards: []
     });
-    if (!cfg.default_tab) cfg.default_tab = cfg.tabs[0].id;
-    this._emitConfigChanged(cfg);
+    newConfig.tabs = newTabs;
+    this._emitConfigChanged(newConfig);
   }
 
-  private _removeTab(i: number) {
-    const cfg = this._clone();
-    cfg.tabs.splice(i, 1);
-    if (!cfg.tabs.length) {
-      cfg.tabs = [
-        {
-          id: "Tab1",
-          label: "Tab 1",
-          icon: "mdi:apps",
-          cards: [{ type: "markdown", content: "Hello" }],
-        },
-      ];
-    }
-    if (cfg.default_tab && !cfg.tabs.some((t) => t.id === cfg.default_tab)) {
-      cfg.default_tab = cfg.tabs[0].id;
-    }
-    this._emitConfigChanged(cfg);
+  private _removeTab(index: number) {
+    const newConfig = this._cloneConfig();
+    newConfig.tabs.splice(index, 1);
+    this._emitConfigChanged(newConfig);
+  }
+
+  private _handleCardChanged(tabIndex: number, cardIndex: number, ev: any) {
+    ev.stopPropagation(); // Verhindert Endlosschleifen
+    const newConfig = this._cloneConfig();
+    newConfig.tabs[tabIndex].cards[cardIndex] = ev.detail.value;
+    this._emitConfigChanged(newConfig);
   }
 
   private _addCard(tabIndex: number) {
-    const cfg = this._clone();
-    cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
-    cfg.tabs[tabIndex].cards!.push({ type: "markdown", content: "New card" });
-    this._emitConfigChanged(cfg);
-  }
-
-  private _removeCard(tabIndex: number, cardIndex: number) {
-    const cfg = this._clone();
-    cfg.tabs[tabIndex].cards?.splice(cardIndex, 1);
-    this._emitConfigChanged(cfg);
-  }
-
-  private _updateCard(tabIndex: number, cardIndex: number, newCardConfig: any) {
-    const cfg = this._clone();
-    cfg.tabs[tabIndex].cards = cfg.tabs[tabIndex].cards ?? [];
-    cfg.tabs[tabIndex].cards![cardIndex] = newCardConfig;
-    this._emitConfigChanged(cfg);
-  }
-
-  private _renderCardEditor(tabIndex: number, cardIndex: number, cardCfg: any) {
-    // Use HA card editor if available + hass exists
-    const EditorEl = this.hass ? customElements.get("hui-card-element-editor") : undefined;
-
-    if (EditorEl) {
-      const el: any = document.createElement("hui-card-element-editor");
-      el.hass = this.hass;
-      el.value = cardCfg;
-      el.addEventListener("value-changed", (ev: any) => {
-        const value = ev?.detail?.value;
-        if (value) this._updateCard(tabIndex, cardIndex, value);
-      });
-      return html`<div class="card-editor">${el}</div>`;
-    }
-
-    // JSON fallback editor (always works)
-    return html`
-      <div class="card-editor">
-        <div class="hint">
-          ${this.hass ? "Card-Editor nicht verfügbar → JSON-Fallback." : "HA lädt noch… JSON-Fallback aktiv."}
-        </div>
-        <textarea
-          class="json"
-          @change=${(e: any) => {
-            try {
-              const v = JSON.parse(e.target.value);
-              this._updateCard(tabIndex, cardIndex, v);
-            } catch {
-              // ignore parse errors
-            }
-          }}
-        >${JSON.stringify(cardCfg, null, 2)}</textarea>
-      </div>
-    `;
+    const newConfig = this._cloneConfig();
+    if (!newConfig.tabs[tabIndex].cards) newConfig.tabs[tabIndex].cards = [];
+    newConfig.tabs[tabIndex].cards.push({ type: "markdown", content: "Neue Karte" });
+    this._emitConfigChanged(newConfig);
   }
 
   render() {
-    if (!this._config) return html`<div class="hint">Konfiguration wird geladen…</div>`;
+    if (!this.hass || !this._config) {
+      return html`<div>Lade Konfiguration...</div>`;
+    }
 
     return html`
-      <div class="section">
-        <label class="switch">
-          <input
-            type="checkbox"
-            .checked=${!!this._config.sticky_tabs}
-            @change=${(e: any) => this._setValue("sticky_tabs", e.target.checked)}
-          />
-          <span>Sticky tabs</span>
-        </label>
-      </div>
+      <div class="editor-container">
+        <div class="global-settings grid">
+          <label>
+            <div class="lbl">Storage Key (für Merken des Tabs)</div>
+            <input
+              class="inp"
+              .value=${this._config.storage_key || ""}
+              .configValue=${"storage_key"}
+              @input=${this._handleValueChanged}
+            />
+          </label>
+          
+          <label class="switch-container">
+            <input
+              type="checkbox"
+              .checked=${this._config.sticky_tabs}
+              .configValue=${"sticky_tabs"}
+              @change=${this._handleValueChanged}
+            />
+            <span>Tabs oben anheften (Sticky)</span>
+          </label>
+        </div>
 
-      <div class="grid">
-        <label>
-          <div class="lbl">storage_key (optional)</div>
-          <input
-            class="inp"
-            .value=${this._config.storage_key ?? ""}
-            @input=${(e: any) => this._setValue("storage_key", e.target.value || undefined)}
-          />
-        </label>
+        <hr />
 
-        <label>
-          <div class="lbl">default_tab (optional)</div>
-          <input
-            class="inp"
-            .value=${this._config.default_tab ?? ""}
-            @input=${(e: any) => this._setValue("default_tab", e.target.value || undefined)}
-          />
-        </label>
-      </div>
+        <div class="header">
+          <h3>Tabs Konfiguration</h3>
+          <button class="btn add-btn" @click=${this._addTab}>+ Tab hinzufügen</button>
+        </div>
 
-      <div class="tabs-header">
-        <div class="h">Tabs</div>
-        <button class="btn" @click=${this._addTab}>Add Tab</button>
-      </div>
-
-      ${this._config.tabs.map(
-        (t, i) => html`
-          <div class="tab">
-            <div class="tab-top">
-              <div class="tab-title">Tab ${i + 1}</div>
-              <button class="btn" @click=${() => this._removeTab(i)}>Remove</button>
+        ${this._config.tabs?.map((tab: any, tIdx: number) => html`
+          <div class="tab-card">
+            <div class="tab-header">
+              <strong>${tab.label || tab.id}</strong>
+              <button class="btn danger" @click=${() => this._removeTab(tIdx)}>Löschen</button>
             </div>
 
             <div class="grid">
-              <label>
-                <div class="lbl">id</div>
-                <input
-                  class="inp"
-                  .value=${t.id}
-                  @input=${(e: any) => {
-                    const cfg = this._clone();
-                    cfg.tabs[i].id = e.target.value;
-                    this._emitConfigChanged(cfg);
-                  }}
-                />
-              </label>
-
-              <label>
-                <div class="lbl">label</div>
-                <input
-                  class="inp"
-                  .value=${t.label ?? ""}
-                  @input=${(e: any) => {
-                    const cfg = this._clone();
-                    cfg.tabs[i].label = e.target.value || undefined;
-                    this._emitConfigChanged(cfg);
-                  }}
-                />
-              </label>
-
-              <label>
-                <div class="lbl">icon (mdi:...)</div>
-                <input
-                  class="inp"
-                  .value=${t.icon ?? ""}
-                  @input=${(e: any) => {
-                    const cfg = this._clone();
-                    cfg.tabs[i].icon = e.target.value || undefined;
-                    this._emitConfigChanged(cfg);
-                  }}
-                />
-              </label>
+              <input class="inp" placeholder="ID" .value=${tab.id} @input=${(e: any) => {
+                const cfg = this._cloneConfig();
+                cfg.tabs[tIdx].id = e.target.value;
+                this._emitConfigChanged(cfg);
+              }} />
+              <input class="inp" placeholder="Label" .value=${tab.label || ""} @input=${(e: any) => {
+                const cfg = this._cloneConfig();
+                cfg.tabs[tIdx].label = e.target.value;
+                this._emitConfigChanged(cfg);
+              }} />
             </div>
 
-            <div class="cards-header">
-              <div class="h2">Cards in Tab</div>
-              <button class="btn" @click=${() => this._addCard(i)}>Add Card</button>
-            </div>
-
-            ${(t.cards ?? []).map(
-              (c, ci) => html`
-                <div class="card-block">
-                  <div class="card-top">
-                    <div class="card-title">Card ${ci + 1}</div>
-                    <button class="btn" @click=${() => this._removeCard(i, ci)}>Remove</button>
+            <div class="cards-section">
+              <h4>Karten in diesem Tab</h4>
+              ${tab.cards?.map((card: any, cIdx: number) => html`
+                <div class="card-wrapper">
+                  <div class="card-editor-header">
+                     <span>Karte ${cIdx + 1} (${card.type})</span>
+                     <button class="btn-small danger" @click=${() => {
+                        const cfg = this._cloneConfig();
+                        cfg.tabs[tIdx].cards.splice(cIdx, 1);
+                        this._emitConfigChanged(cfg);
+                     }}>Entfernen</button>
                   </div>
-                  ${this._renderCardEditor(i, ci, c)}
+                  <hui-card-element-editor
+                    .hass=${this.hass}
+                    .value=${card}
+                    .lovelace=${this.lovelace}
+                    @value-changed=${(ev: any) => this._handleCardChanged(tIdx, cIdx, ev)}
+                  ></hui-card-element-editor>
                 </div>
-              `
-            )}
+              `)}
+              <button class="btn add-btn" @click=${() => this._addCard(tIdx)}>+ Karte hinzufügen</button>
+            </div>
           </div>
-        `
-      )}
+        `)}
+      </div>
     `;
   }
 
   static styles = css`
-    :host { display:block; padding: 4px 0; }
-    .hint { opacity:.7; font-size:12px; margin-bottom:8px; }
-    .section { margin-bottom:10px; }
-    .switch { display:inline-flex; gap:10px; align-items:center; font-weight:600; }
-    .grid { display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:12px; }
-    .lbl { font-size:12px; opacity:.7; margin-bottom:4px; }
-    .inp { width:100%; padding:8px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(255,255,255,.6); }
-    .tabs-header,.cards-header { display:flex; align-items:center; justify-content:space-between; margin:12px 0 8px; }
-    .h,.h2 { font-weight:800; }
-    .btn { padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); background: rgba(0,0,0,.05); cursor:pointer; }
-    .tab { border:1px solid rgba(0,0,0,.15); border-radius:12px; padding:12px; margin-bottom:12px; }
-    .tab-top,.card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-    .tab-title,.card-title { font-weight:800; }
-    .card-block { border:1px dashed rgba(0,0,0,.25); border-radius:12px; padding:10px; margin-top:10px; }
-    textarea.json { width:100%; min-height:140px; padding:10px; border-radius:10px; border:1px solid rgba(0,0,0,.2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background: rgba(255,255,255,.6); }
+    .editor-container { padding: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+    .lbl { font-size: 12px; font-weight: bold; margin-bottom: 5px; }
+    .inp { 
+      width: 100%; padding: 10px; border-radius: 4px; 
+      border: 1px solid var(--divider-color); 
+      background: var(--card-background-color);
+      color: var(--primary-text-color);
+      box-sizing: border-box;
+    }
+    .tab-card { 
+      border: 1px solid var(--divider-color); 
+      padding: 15px; border-radius: 8px; margin-bottom: 20px;
+      background: rgba(var(--rgb-primary-text-color), 0.03);
+    }
+    .tab-header { display: flex; justify-content: space-between; margin-bottom: 15px; align-items: center; }
+    .card-wrapper { 
+      margin: 10px 0; padding: 10px; 
+      border: 1px dashed var(--divider-color); 
+      border-radius: 8px; 
+    }
+    .card-editor-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; opacity: 0.8; }
+    .btn { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+    .btn-small { padding: 4px 8px; font-size: 11px; border-radius: 4px; border: none; cursor: pointer; }
+    .add-btn { background: var(--primary-color); color: white; }
+    .danger { background: var(--error-color); color: white; }
+    .switch-container { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    hr { border: 0; border-top: 1px solid var(--divider-color); margin: 20px 0; }
   `;
 }

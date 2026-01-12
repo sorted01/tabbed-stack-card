@@ -1,19 +1,15 @@
 import { LitElement, html, css } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { customElement, state, property } from "lit/decorators.js";
 import type { LovelaceCard } from "custom-card-helpers";
 
-// IMPORTANT: ensure editor gets bundled + defined
+// Importiert den Editor, damit er registriert wird
 import "./tabbed-stack-card-editor";
 
 interface TabConfig {
   id: string;
   label?: string;
   icon?: string;
-
-  // Preferred
   cards?: any[];
-
-  // Backward compatibility
   card?: any;
 }
 
@@ -25,77 +21,50 @@ interface CardConfig {
   sticky_tabs?: boolean;
 }
 
-declare global {
-  interface Window {
-    loadCardHelpers?: () => Promise<any>;
-    customCards?: Array<any>;
-  }
-}
-
 @customElement("tabbed-stack-card")
 export class TabbedStackCard extends LitElement {
+  // Hass als Property sorgt für automatische Updates der Unterkarten
+  @property({ attribute: false }) public hass: any;
+  
   @state() private _config!: CardConfig;
   @state() private _activeTab!: string;
 
-  private _card?: LovelaceCard;
+  private _cardElement?: LovelaceCard;
   private _helpers?: any;
 
-  // --- Hass setter (fixes live updates even if hass is mutated in-place) ---
-  private _hass: any;
-
-  public set hass(value: any) {
-    this._hass = value;
-    if (this._card) this._card.hass = value;
-    this.requestUpdate();
-  }
-
-  public get hass() {
-    return this._hass;
-  }
-
-  // --- Visual editor integration (ROBUST) ---
+  // Verbindet die Karte mit dem visuellen Editor
   static getConfigElement() {
-    // Create element even if it isn't upgraded yet
-    const el: any = document.createElement("tabbed-stack-card-editor");
-
-    // Guarantee a setConfig exists at the moment HA calls it
-    // If the element isn't upgraded yet, this stores config on `el.config`.
-    if (typeof el.setConfig !== "function") {
-      el.setConfig = (config: any) => {
-        el.config = config;
-      };
-    }
-
-    return el;
+    return document.createElement("tabbed-stack-card-editor");
   }
 
-  // NOTE: HA expects stub config WITHOUT `type`
   static getStubConfig() {
     return {
       sticky_tabs: true,
-      storage_key: "tabs_default",
-      default_tab: "Licht",
       tabs: [
         {
-          id: "Licht",
+          id: "tab1",
           label: "Licht",
           icon: "mdi:lamp",
-          cards: [{ type: "markdown", content: "Hello Licht" }],
+          cards: [{ type: "light", entity: "" }],
         },
         {
-          id: "Rollo",
-          label: "Rollo",
-          icon: "mdi:roller-shade",
-          cards: [{ type: "markdown", content: "Hello Rollo" }],
+          id: "tab2",
+          label: " Klima",
+          icon: "mdi:thermostat",
+          cards: [{ type: "thermostat", entity: "" }],
         },
       ],
     };
   }
 
   setConfig(config: CardConfig) {
-    if (!config?.tabs?.length) throw new Error("tabs required");
+    if (!config?.tabs?.length) {
+        // Falls der Editor noch lädt oder Tabs leer sind, verhindern wir einen Absturz
+        this._config = config;
+        return;
+    }
 
-    // Normalize tabs to always have cards[]
+    // Normalisierung
     const normalizedTabs = config.tabs.map((t) => ({
       ...t,
       cards: t.cards ?? (t.card ? [t.card] : []),
@@ -103,54 +72,57 @@ export class TabbedStackCard extends LitElement {
 
     this._config = { ...config, tabs: normalizedTabs };
 
+    // Tab-Auswahl (Storage oder Default)
     const stored = this._config.storage_key
       ? localStorage.getItem(this._config.storage_key)
       : null;
 
-    this._activeTab = stored || this._config.default_tab || this._config.tabs[0].id;
+    if (!this._activeTab || !this._config.tabs.some(t => t.id === this._activeTab)) {
+        this._activeTab = stored || this._config.default_tab || this._config.tabs[0].id;
+    }
 
-    void this._buildCard();
+    this._buildCard();
   }
 
   private _setTab(id: string) {
     this._activeTab = id;
-
     if (this._config.storage_key) {
       localStorage.setItem(this._config.storage_key, id);
     }
-
-    void this._buildCard();
+    this._buildCard();
   }
 
   private async _buildCard() {
     if (!this._config?.tabs?.length) return;
 
-    const tab =
-      this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
+    const tab = this._config.tabs.find((t) => t.id === this._activeTab) ?? this._config.tabs[0];
+    const cards = tab.cards ?? [];
 
     if (!this._helpers) {
-      if (!window.loadCardHelpers) {
-        throw new Error("Home Assistant card helpers not found (window.loadCardHelpers missing).");
+      if (window.loadCardHelpers) {
+        this._helpers = await window.loadCardHelpers();
       }
-      this._helpers = await window.loadCardHelpers();
     }
 
-    const cards = tab.cards ?? [];
-    const cardConfig =
-      cards.length <= 1
-        ? (cards[0] ?? { type: "markdown", content: "No card configured" })
-        : { type: "vertical-stack", cards };
+    if (this._helpers) {
+        const cardConfig = cards.length === 1 
+            ? cards[0] 
+            : { type: "vertical-stack", cards };
+            
+        this._cardElement = this._helpers.createCardElement(cardConfig);
+        this._cardElement!.hass = this.hass;
+    }
+  }
 
-    this._card = this._helpers.createCardElement(cardConfig);
-
-    // Forward hass immediately
-    if (this._hass) this._card.hass = this._hass;
-
-    this.requestUpdate();
+  // Wichtig für Live-Vorschau: Wenn sich Hass ändert, muss es an die Unterkarte weitergereicht werden
+  protected updated(changedProps: Map<string, any>) {
+    if (changedProps.has("hass") && this._cardElement) {
+      this._cardElement.hass = this.hass;
+    }
   }
 
   render() {
-    if (!this._config) return html``;
+    if (!this._config || !this._config.tabs) return html``;
 
     return html`
       <div class="tabs ${this._config.sticky_tabs ? "sticky" : ""}">
@@ -160,7 +132,7 @@ export class TabbedStackCard extends LitElement {
               class="chip ${t.id === this._activeTab ? "active" : ""}"
               @click=${() => this._setTab(t.id)}
             >
-              ${t.icon ? html`<ha-icon icon="${t.icon}"></ha-icon>` : ""}
+              ${t.icon ? html`<ha-icon .icon="${t.icon}"></ha-icon>` : ""}
               <span>${t.label ?? t.id}</span>
             </button>
           `
@@ -168,7 +140,7 @@ export class TabbedStackCard extends LitElement {
       </div>
 
       <div class="content">
-        ${this._card ?? ""}
+        ${this._cardElement || html`<p>Lade Karten...</p>`}
       </div>
     `;
   }
@@ -177,84 +149,49 @@ export class TabbedStackCard extends LitElement {
     :host {
       display: block;
       width: 100%;
-      max-width: 100%;
     }
-
     .tabs {
       display: flex;
       justify-content: center;
-      gap: var(--tsc-chip-gap, 12px);
-      padding: 10px 0 6px;
+      gap: 8px;
+      padding: 8px 0;
+      overflow-x: auto;
       background: var(--tsc-tabs-bg, transparent);
-      z-index: 2;
     }
-
     .tabs.sticky {
       position: sticky;
       top: 0;
       z-index: 10;
+      background: var(--card-background-color, white);
     }
-
     .chip {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: var(--tsc-chip-padding, 10px 18px);
-      border-radius: var(--tsc-chip-radius, 999px);
+      padding: 8px 16px;
+      border-radius: 20px;
       border: none;
       cursor: pointer;
-
-      background: var(--tsc-chip-bg, rgba(0, 0, 0, 0.18));
+      background: var(--secondary-background-color, #eee);
       color: var(--primary-text-color);
-
-      font-size: 14px;
-      line-height: 1;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
+      white-space: nowrap;
+      transition: all 0.2s ease;
     }
-
     .chip.active {
-      background: var(--tsc-chip-bg-active, var(--primary-color));
-      color: var(
-        --tsc-chip-fg-active,
-        var(--text-primary-color, var(--primary-text-color))
-      );
+      background: var(--primary-color);
+      color: var(--text-primary-color, white);
     }
-
-    .chip.active ha-icon {
-      color: var(
-        --tsc-chip-fg-active,
-        var(--text-primary-color, var(--primary-text-color))
-      );
-    }
-
-    ha-icon {
-      --mdc-icon-size: var(--tsc-chip-icon-size, 22px);
-    }
-
     .content {
-      padding-top: 6px;
-
-      /* Shield against Bubble/global overrides */
-      --vertical-stack-card-gap: var(--tsc-stack-gap, 12px);
-
-      width: 100%;
-      max-width: 100%;
-    }
-
-    .content > * {
-      display: block;
-      width: 100%;
-      max-width: 100%;
+      margin-top: 8px;
     }
   `;
 }
 
-// Register in card picker / helps editor reliability
-window.customCards = window.customCards || [];
-window.customCards.push({
+// Custom Card Picker Integration
+(window as any).customCards = (window as any).customCards || [];
+(window as any).customCards.push({
   type: "tabbed-stack-card",
   name: "Tabbed Stack Card",
-  description: "Tabbed navigation with multiple cards per tab (Bubble-style).",
+  description: "Erlaubt das Gruppieren von Karten in Tabs.",
   preview: true,
 });
